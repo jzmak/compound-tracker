@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="96" fill="#030712"/>
+  <rect x="96" y="206" width="320" height="20" rx="10" fill="#3b82f6"/>
+  <rect x="96" y="286" width="320" height="20" rx="10" fill="#f97316"/>
+  <circle cx="156" cy="216" r="50" fill="none" stroke="#3b82f6" stroke-width="12"/>
+  <circle cx="356" cy="216" r="50" fill="none" stroke="#3b82f6" stroke-width="12"/>
+  <circle cx="156" cy="296" r="40" fill="none" stroke="#f97316" stroke-width="12"/>
+  <circle cx="356" cy="296" r="40" fill="none" stroke="#f97316" stroke-width="12"/>
+  <text x="256" y="420" text-anchor="middle" fill="white" font-family="system-ui, sans-serif" font-size="48" font-weight="bold">CT</text>
+</svg>
