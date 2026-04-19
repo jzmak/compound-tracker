@@ -16,15 +16,14 @@ const STREAK_LOOKBACK_WEEKS = 52;
 const MIN_SESSIONS_PER_WEEK = 3;
 const STORAGE_VERSION = 6;
 const EDITABLE_SESSION_COUNT = 3;
-const INCREMENT = 5; // 5 lb flat for every exercise (2.5/side)
 
 const EXERCISES = {
-  belt_squat:     { name: "Belt Squat",            bar: "none",   repMin: 8,  repMax: 10, sRepMin: 5, sRepMax: 8,  sets: 3, resetPct: 0.10,  stallN: 3, hW: 140, sW: 160 },
-  standing_press: { name: "Barbell Standing Press", bar: "barbell", repMin: 6,  repMax: 10, sRepMin: 4, sRepMax: 6,  sets: 3, resetPct: 0.075, stallN: 3, hW: 95,  sW: 110, note: "total incl. bar" },
-  tbar_row:       { name: "Lying T-Bar Row",       bar: "none",   repMin: 8,  repMax: 12, sRepMin: 5, sRepMax: 8,  sets: 3, resetPct: 0.10,  stallN: 3, hW: 70,  sW: 80,  note: "plates only" },
-  hex_deadlift:   { name: "Hex Bar Deadlift",      bar: "hex",    repMin: 5,  repMax: 8,  sRepMin: 3, sRepMax: 5,  sets: 3, resetPct: 0.10,  stallN: 2, hW: 165, sW: 190, priority: true },
-  incline_smith:  { name: "Incline Smith Press",   bar: "smith",  repMin: 8,  repMax: 10, sRepMin: 5, sRepMax: 8,  sets: 3, resetPct: 0.085, stallN: 3, hW: 90,  sW: 105, note: "plates only" },
-  leg_press:      { name: "Leg Press",             bar: "none",   repMin: 10, repMax: 15, sRepMin: 6, sRepMax: 10, sets: 3, resetPct: 0.10,  stallN: 3, hW: 225, sW: 260 },
+  belt_squat:     { name: "Belt Squat",            bar: "none",   inc: 5,   repMin: 8,  repMax: 10, sRepMin: 5, sRepMax: 8,  sets: 3, resetPct: 0.10,  stallN: 3, hW: 140, sW: 160 },
+  standing_press: { name: "Barbell Standing Press", bar: "barbell", inc: 2.5, repMin: 6,  repMax: 10, sRepMin: 4, sRepMax: 6,  sets: 3, resetPct: 0.075, stallN: 3, hW: 95,  sW: 110, note: "total incl. bar" },
+  tbar_row:       { name: "Lying T-Bar Row",       bar: "none",   inc: 5,   repMin: 8,  repMax: 12, sRepMin: 5, sRepMax: 8,  sets: 3, resetPct: 0.10,  stallN: 3, hW: 70,  sW: 80,  note: "plates only" },
+  hex_deadlift:   { name: "Hex Bar Deadlift",      bar: "hex",    inc: 5,   repMin: 5,  repMax: 8,  sRepMin: 3, sRepMax: 5,  sets: 3, resetPct: 0.10,  stallN: 2, hW: 165, sW: 190, priority: true },
+  incline_smith:  { name: "Incline Smith Press",   bar: "smith",  inc: 5,   repMin: 8,  repMax: 10, sRepMin: 5, sRepMax: 8,  sets: 3, resetPct: 0.085, stallN: 3, hW: 90,  sW: 105, note: "plates only" },
+  leg_press:      { name: "Leg Press",             bar: "none",   inc: 10,  repMin: 10, repMax: 15, sRepMin: 6, sRepMax: 10, sets: 3, resetPct: 0.10,  stallN: 3, hW: 225, sW: 260 },
 };
 
 const WORKOUTS = {
@@ -33,18 +32,35 @@ const WORKOUTS = {
 };
 
 const ACCESSORIES = [
-  { id: "lat_pulldown",  name: "Lat Pulldown",      muscle: "Back" },
-  { id: "shrug",         name: "Shrug",             muscle: "Traps" },
-  { id: "cable_row",     name: "Cable/Machine Row", muscle: "Back" },
-  { id: "face_pull",     name: "Face Pull",         muscle: "Shoulders" },
-  { id: "bicep_curl",    name: "Bicep Curl",        muscle: "Biceps" },
-  { id: "lateral_raise", name: "Lateral Raise",     muscle: "Shoulders" },
-  { id: "rear_delt_fly", name: "Rear Delt Fly",     muscle: "Shoulders" },
-  { id: "tricep_push",   name: "Tricep Pushdown",   muscle: "Triceps" },
-  { id: "leg_curl",      name: "Leg Curl",          muscle: "Hamstrings" },
-  { id: "dec_crunch",    name: "Decline Crunch",    muscle: "Core" },
-  { id: "hip_thrust",    name: "Hip Thrust",        muscle: "Glutes" },
+  { id: "lat_pulldown",  name: "Lat Pulldown",      muscle: "Back",      categories: ["vertical_pull"] },
+  { id: "shrug",         name: "Shrug",             muscle: "Traps",     categories: [] },
+  { id: "cable_row",     name: "Cable/Machine Row", muscle: "Back",      categories: ["upper_back_shoulder"] },
+  { id: "face_pull",     name: "Face Pull",         muscle: "Shoulders", categories: ["delt_upper_back", "upper_back_shoulder"] },
+  { id: "bicep_curl",    name: "Bicep Curl",        muscle: "Biceps",    categories: ["arms"] },
+  { id: "lateral_raise", name: "Lateral Raise",     muscle: "Shoulders", categories: ["delt_upper_back", "upper_back_shoulder"] },
+  { id: "rear_delt_fly", name: "Rear Delt Fly",     muscle: "Shoulders", categories: ["delt_upper_back", "upper_back_shoulder"] },
+  { id: "tricep_push",   name: "Tricep Pushdown",   muscle: "Triceps",   categories: ["arms"] },
+  { id: "leg_curl",      name: "Leg Curl",          muscle: "Hamstrings", categories: ["hamstring_posterior"] },
+  { id: "dec_crunch",    name: "Decline Crunch",    muscle: "Core",      categories: ["abs"] },
+  { id: "hip_thrust",    name: "Hip Thrust",        muscle: "Glutes",    categories: ["hamstring_posterior"] },
 ];
+
+const REQUIRED_CATEGORIES = {
+  A: [
+    { id: "vertical_pull", label: "Vertical Pull", eligible: ["lat_pulldown"] },
+    { id: "delt_upper_back", label: "Delt / Upper Back", eligible: ["lateral_raise", "rear_delt_fly", "face_pull"] },
+  ],
+  B: [
+    { id: "hamstring_posterior", label: "Hamstring / Posterior", eligible: ["leg_curl", "hip_thrust"] },
+    { id: "upper_back_shoulder", label: "Upper Back / Shoulder", eligible: ["cable_row", "face_pull", "rear_delt_fly", "lateral_raise"] },
+  ],
+};
+
+const THIRD_SLOT_OPTIONS = {
+  arms: { id: "arms", label: "Arms", eligible: ["bicep_curl", "tricep_push"] },
+  abs:  { id: "abs",  label: "Abs",  eligible: ["dec_crunch"] },
+  free: { id: "free", label: "Free Choice", eligible: ACCESSORIES.map(a => a.id) },
+};
 
 const ACC_TEMPLATES = {
   A: { label: "Workout A Favorites", ids: ["lat_pulldown", "face_pull", "bicep_curl"] },
@@ -166,23 +182,23 @@ function applyDUPProgression(currentDup, completedExercises) {
 
     if (allSetsHitTarget) {
       if (sessionType === "hypertrophy") {
-        updated[exercise.id].hW += INCREMENT;
+        updated[exercise.id].hW += config.inc;
         updated[exercise.id].hStalls = 0;
       } else {
-        updated[exercise.id].sW += INCREMENT;
+        updated[exercise.id].sW += config.inc;
         updated[exercise.id].sStalls = 0;
       }
     } else {
       if (sessionType === "hypertrophy") {
         updated[exercise.id].hStalls++;
         if (updated[exercise.id].hStalls >= config.stallN) {
-          updated[exercise.id].hW = roundToIncrement(updated[exercise.id].hW * (1 - config.resetPct), INCREMENT);
+          updated[exercise.id].hW = roundToIncrement(updated[exercise.id].hW * (1 - config.resetPct), config.inc);
           updated[exercise.id].hStalls = 0;
         }
       } else {
         updated[exercise.id].sStalls++;
         if (updated[exercise.id].sStalls >= config.stallN) {
-          updated[exercise.id].sW = roundToIncrement(updated[exercise.id].sW * (1 - config.resetPct), INCREMENT);
+          updated[exercise.id].sW = roundToIncrement(updated[exercise.id].sW * (1 - config.resetPct), config.inc);
           updated[exercise.id].sStalls = 0;
         }
       }
@@ -294,6 +310,21 @@ function getCalendarData(history) {
     map[dateKey] = { workout: session.workout, rpe: session.rpe };
   });
   return map;
+}
+
+function getRequiredCategories(workoutKey, settings) {
+  const base = REQUIRED_CATEGORIES[workoutKey] || [];
+  const thirdSlotKey = workoutKey === "A" ? settings.thirdSlotA : settings.thirdSlotB;
+  const thirdSlot = THIRD_SLOT_OPTIONS[thirdSlotKey || "free"];
+  return [...base, thirdSlot];
+}
+
+function checkCategoryCompletion(categories, accItems) {
+  return categories.map(cat => {
+    const completed = accItems.some(acc => (acc.done || acc.sets) && cat.eligible.includes(acc.id));
+    const matchedAcc = accItems.find(acc => cat.eligible.includes(acc.id));
+    return { ...cat, completed, matchedAccName: matchedAcc?.name || null };
+  });
 }
 
 /* ═══════════════════════════════════════════
@@ -453,7 +484,7 @@ function useWorkoutStorage() {
   const [bwHistory, setBwHistory] = useState([]);
   const [measurements, setMeasurements] = useState([]);
   const [nextWorkout, setNextWorkout] = useState("A");
-  const [settings, setSettings] = useState({ autoRestTimer: true });
+  const [settings, setSettings] = useState({ autoRestTimer: true, thirdSlotA: "abs", thirdSlotB: "arms" });
   const [customTemplates, setCustomTemplates] = useState(ACC_TEMPLATES);
   const [loading, setLoading] = useState(true);
   const [recoveredSession, setRecoveredSession] = useState(null);
@@ -917,10 +948,10 @@ function SessionEditor({ session, index, onSave, onDelete, onClose }) {
             <div className="flex justify-between items-center">
               <div className="font-semibold text-sm">{exercise.name}</div>
               <div className="flex items-center gap-2">
-                <button onClick={() => updateExerciseWeight(exIdx, Math.max(0, exercise.weight - INCREMENT))}
+                <button onClick={() => updateExerciseWeight(exIdx, Math.max(0, exercise.weight - (EXERCISES[exercise.id]?.inc || 5)))}
                   className="w-8 h-8 rounded-full bg-gray-700 font-bold flex items-center justify-center text-sm">−</button>
                 <span className="font-bold text-sm w-16 text-center">{exercise.weight}lb</span>
-                <button onClick={() => updateExerciseWeight(exIdx, exercise.weight + INCREMENT)}
+                <button onClick={() => updateExerciseWeight(exIdx, exercise.weight + (EXERCISES[exercise.id]?.inc || 5))}
                   className="w-8 h-8 rounded-full bg-gray-700 font-bold flex items-center justify-center text-sm">+</button>
               </div>
             </div>
@@ -1176,9 +1207,10 @@ function LogView({
   function updateWeight(exerciseIdx, direction) {
     setSession(prev => {
       const exercises = [...prev.exercises];
+      const exInc = EXERCISES[exercises[exerciseIdx].id]?.inc || 5;
       exercises[exerciseIdx] = {
         ...exercises[exerciseIdx],
-        weight: Math.max(0, exercises[exerciseIdx].weight + direction * INCREMENT),
+        weight: Math.max(0, exercises[exerciseIdx].weight + direction * exInc),
       };
       return { ...prev, exercises };
     });
@@ -1228,8 +1260,8 @@ function LogView({
         const isOverride = !!emphasisOvr[exercise.id];
         const warmupSets = [
           { pct: 0, label: "Bar", weight: BAR_WEIGHTS[config.bar] || 0 },
-          { pct: 0.5, label: "50%", weight: roundToIncrement(exercise.weight * 0.5, INCREMENT) },
-          { pct: 0.75, label: "75%", weight: roundToIncrement(exercise.weight * 0.75, INCREMENT) },
+          { pct: 0.5, label: "50%", weight: roundToIncrement(exercise.weight * 0.5, EXERCISES[exercise.id]?.inc || 5) },
+          { pct: 0.75, label: "75%", weight: roundToIncrement(exercise.weight * 0.75, EXERCISES[exercise.id]?.inc || 5) },
         ].filter(ws => ws.weight > 0 && ws.weight < exercise.weight);
 
         return (
@@ -1321,11 +1353,47 @@ function LogView({
               ))}
             </div>
             <div className="mt-2 text-xs text-gray-600">
-              Progress at {exercise.targetReps} reps all sets → +{INCREMENT}lb
+              Progress at {exercise.targetReps} reps all sets → +{EXERCISES[exercise.id]?.inc || 5}lb
             </div>
           </div>
         );
       })}
+
+      {/* Required Accessory Categories */}
+      {session?.workout && (() => {
+        const reqCats = getRequiredCategories(session.workout, settings);
+        const catStatus = checkCategoryCompletion(reqCats, accItems);
+        const allDone = catStatus.every(c => c.completed);
+        return (
+          <div className="bg-gray-900 rounded-2xl p-4 border border-gray-800">
+            <div className="flex justify-between items-center mb-3">
+              <div className="font-semibold">Required Categories</div>
+              {allDone && <span className="text-xs text-green-400">All complete ✓</span>}
+            </div>
+            <div className="space-y-2">
+              {catStatus.map(cat => (
+                <div key={cat.id} className={`flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors ${
+                  cat.completed ? "bg-green-900 bg-opacity-30 border border-green-800" : "bg-gray-800 border border-gray-700"
+                }`}>
+                  <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs flex-shrink-0 ${
+                    cat.completed ? "bg-green-600" : "bg-gray-700"
+                  }`}>
+                    {cat.completed ? "✓" : "○"}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className={`text-sm font-medium ${cat.completed ? "text-green-300" : "text-gray-300"}`}>{cat.label}</div>
+                    <div className="text-xs text-gray-500">
+                      {cat.completed
+                        ? cat.matchedAccName
+                        : cat.eligible.map(id => ACCESSORIES.find(a => a.id === id)?.name).filter(Boolean).join(", ")}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Accessories */}
       <div className="bg-gray-900 rounded-2xl p-4 border border-gray-800">
@@ -1498,7 +1566,7 @@ function HistoryView({ history, onEdit }) {
    VIEW: Progress
    ═══════════════════════════════════════════ */
 
-function ProgressView({ history, dup, prs, bwHistory, measurements, selEx, setSelEx, onExport, onShowImport }) {
+function ProgressView({ history, dup, prs, bwHistory, measurements, selEx, setSelEx, onExport, onShowImport, settings, onSaveSettings }) {
   const volumeData = useMemo(() => getVolumeHistory(history), [history]);
   const calendarData = useMemo(() => getCalendarData(history), [history]);
   return (
@@ -1980,6 +2048,41 @@ function ProgressView({ history, dup, prs, bwHistory, measurements, selEx, setSe
         })()}
       </div>
 
+      {/* Settings */}
+      <div className="bg-gray-900 rounded-2xl p-4 border border-gray-800">
+        <div className="font-semibold mb-3">Settings</div>
+        <div className="space-y-3">
+          <div>
+            <div className="text-xs text-gray-400 mb-1">Workout A — 3rd required category</div>
+            <div className="flex gap-2">
+              {Object.entries(THIRD_SLOT_OPTIONS).map(([key, opt]) => (
+                <button key={key}
+                  onClick={() => onSaveSettings({ ...settings, thirdSlotA: key })}
+                  className={`flex-1 py-2 rounded-xl text-xs font-semibold transition-colors ${
+                    settings.thirdSlotA === key ? "bg-navy text-navy-light" : "bg-gray-800 text-gray-400"
+                  }`}>
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <div className="text-xs text-gray-400 mb-1">Workout B — 3rd required category</div>
+            <div className="flex gap-2">
+              {Object.entries(THIRD_SLOT_OPTIONS).map(([key, opt]) => (
+                <button key={key}
+                  onClick={() => onSaveSettings({ ...settings, thirdSlotB: key })}
+                  className={`flex-1 py-2 rounded-xl text-xs font-semibold transition-colors ${
+                    settings.thirdSlotB === key ? "bg-navy text-navy-light" : "bg-gray-800 text-gray-400"
+                  }`}>
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Export / Import */}
       <div className="bg-gray-900 rounded-2xl p-4 border border-gray-800 space-y-3">
         <div className="font-semibold mb-1">Data Management</div>
@@ -2033,6 +2136,7 @@ export default function App() {
   const [showImport, setShowImport] = useState(false);
   const [showMeasurements, setShowMeasurements] = useState(false);
   const [confirmSave, setConfirmSave] = useState(false);
+  const [categoryWarn, setCategoryWarn] = useState(false);
   const timerRef = useRef();
 
   // Sunday BW prompt
@@ -2334,6 +2438,16 @@ export default function App() {
         />
       )}
 
+      {categoryWarn && (
+        <ConfirmDialog
+          title="Incomplete Categories"
+          message="You haven't completed all recommended accessory categories for this workout. Complete anyway?"
+          confirmLabel="Save Anyway"
+          onConfirm={() => { setCategoryWarn(false); setConfirmSave(true); }}
+          onCancel={() => setCategoryWarn(false)}
+        />
+      )}
+
       {confirmSave && (
         <ConfirmDialog
           title="Complete Session?"
@@ -2373,7 +2487,7 @@ export default function App() {
         </div>
         <div className="mt-2 flex gap-2 items-center">
           <span className="text-sm">🏋️</span>
-          <span className="text-xs text-gray-500">+{INCREMENT}lb per progression</span>
+          <span className="text-xs text-gray-500">Lift-specific progression</span>
         </div>
         <div className="mt-2 grid grid-cols-3 gap-2">
           <div className="bg-gray-800 rounded-xl p-2 text-center">
@@ -2422,7 +2536,17 @@ export default function App() {
           accItems={accItems} setAccItems={setAccItems}
           rpe={rpe} setRpe={setRpe} note={note} setNote={setNote}
           suggested={suggested} lastDone={lastDone} customTemplates={customTemplates}
-          onToggleOverride={toggleOverride} onSave={() => setConfirmSave(true)}
+          onToggleOverride={toggleOverride} onSave={() => {
+            if (session) {
+              const reqCats = getRequiredCategories(session.workout, settings);
+              const catStatus = checkCategoryCompletion(reqCats, accItems);
+              if (catStatus.some(c => !c.completed)) {
+                setCategoryWarn(true);
+              } else {
+                setConfirmSave(true);
+              }
+            }
+          }}
           onShowPlates={() => setShowPlates(true)}
           onShowTimer={(secs) => { setRestSecs(secs); setShowTimer(true); }}
           onShowAccPicker={() => setShowAccPicker(true)}
@@ -2441,6 +2565,7 @@ export default function App() {
           measurements={measurements}
           selEx={selEx} setSelEx={setSelEx}
           onExport={handleExport} onShowImport={() => setShowImport(true)}
+          settings={settings} onSaveSettings={saveSettings}
         />
       )}
     </div>
