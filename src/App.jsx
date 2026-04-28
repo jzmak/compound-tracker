@@ -1306,6 +1306,22 @@ function LogView({
               </div>
             </div>
 
+            {/* Inline plate breakdown */}
+            {(() => {
+              const barW = BAR_WEIGHTS[config.bar] || 0;
+              const plates = calculatePlates(exercise.weight, barW);
+              if (plates.length === 0 && barW > 0) return (
+                <div className="bg-gray-800 rounded-lg px-3 py-1.5 mb-2 text-xs text-gray-500">Bar only ({barW}lb)</div>
+              );
+              if (plates.length === 0) return null;
+              return (
+                <div className="bg-gray-800 rounded-lg px-3 py-1.5 mb-2 text-xs text-gray-500">
+                  Each side: <span className="text-gray-300">{plates.map(p => p.count > 1 ? `${p.plate}×${p.count}` : `${p.plate}`).join(" + ")}</span>
+                  {barW > 0 ? ` · Bar: ${barW}lb` : " · No bar"}
+                </div>
+              );
+            })()}
+
             {/* Warmup sets (collapsible) */}
             {warmupSets.length > 0 && (
               <div className="bg-gray-800 rounded-lg px-3 py-2 mb-2 text-xs text-gray-500">
