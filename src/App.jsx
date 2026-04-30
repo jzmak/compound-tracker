@@ -32,39 +32,36 @@ const WORKOUTS = {
 };
 
 const ACCESSORIES = [
-  { id: "lat_pulldown",  name: "Lat Pulldown",      muscle: "Back",      categories: ["vertical_pull"] },
-  { id: "shrug",         name: "Shrug",             muscle: "Traps",     categories: [] },
-  { id: "cable_row",     name: "Cable/Machine Row", muscle: "Back",      categories: ["upper_back_shoulder"] },
-  { id: "face_pull",     name: "Face Pull",         muscle: "Shoulders", categories: ["delt_upper_back", "upper_back_shoulder"] },
-  { id: "bicep_curl",    name: "Bicep Curl",        muscle: "Biceps",    categories: ["arms"] },
-  { id: "lateral_raise", name: "Lateral Raise",     muscle: "Shoulders", categories: ["delt_upper_back", "upper_back_shoulder"] },
-  { id: "rear_delt_fly", name: "Rear Delt Fly",     muscle: "Shoulders", categories: ["delt_upper_back", "upper_back_shoulder"] },
-  { id: "tricep_push",   name: "Tricep Pushdown",   muscle: "Triceps",   categories: ["arms"] },
+  { id: "lat_pulldown",  name: "Lat Pulldown",      muscle: "Back",       categories: ["vertical_pull"] },
+  { id: "shrug",         name: "Shrug",             muscle: "Traps",      categories: [] },
+  { id: "cable_row",     name: "Cable/Machine Row", muscle: "Back",       categories: ["upper_back_shoulder"] },
+  { id: "face_pull",     name: "Face Pull",         muscle: "Shoulders",  categories: ["delt_upper_back", "upper_back_shoulder"] },
+  { id: "bicep_curl",    name: "Bicep Curl",        muscle: "Biceps",     categories: ["arms"] },
+  { id: "lateral_raise", name: "Lateral Raise",     muscle: "Shoulders",  categories: ["delt_upper_back", "upper_back_shoulder"] },
+  { id: "rear_delt_fly", name: "Rear Delt Fly",     muscle: "Shoulders",  categories: ["delt_upper_back", "upper_back_shoulder"] },
+  { id: "tricep_push",   name: "Tricep Pushdown",   muscle: "Triceps",    categories: ["arms"] },
   { id: "leg_curl",      name: "Leg Curl",          muscle: "Hamstrings", categories: ["hamstring_posterior"] },
-  { id: "dec_crunch",    name: "Decline Crunch",    muscle: "Core",      categories: ["abs"] },
-  { id: "hip_thrust",    name: "Hip Thrust",        muscle: "Glutes",    categories: ["hamstring_posterior"] },
+  { id: "dec_crunch",    name: "Decline Crunch",    muscle: "Core",       categories: ["abs"] },
+  { id: "hip_thrust",    name: "Hip Thrust",        muscle: "Glutes",     categories: ["hamstring_posterior"] },
+  { id: "rdl",           name: "Romanian Deadlift",  muscle: "Hamstrings/Glutes", categories: ["hamstring_posterior"] },
 ];
 
 const REQUIRED_CATEGORIES = {
   A: [
     { id: "vertical_pull", label: "Vertical Pull", eligible: ["lat_pulldown"] },
-    { id: "delt_upper_back", label: "Delt / Upper Back", eligible: ["lateral_raise", "rear_delt_fly", "face_pull"] },
+    { id: "delt_upper_back", label: "Delt / Upper Back", eligible: ["face_pull", "rear_delt_fly"] },
+    { id: "hamstring_posterior", label: "Hamstring / Posterior", eligible: ["leg_curl", "hip_thrust", "rdl"] },
   ],
   B: [
-    { id: "hamstring_posterior", label: "Hamstring / Posterior", eligible: ["leg_curl", "hip_thrust"] },
-    { id: "upper_back_shoulder", label: "Upper Back / Shoulder", eligible: ["cable_row", "face_pull", "rear_delt_fly", "lateral_raise"] },
+    { id: "hamstring_posterior", label: "Hamstring / Posterior", eligible: ["leg_curl", "hip_thrust", "rdl"] },
+    { id: "upper_back_shoulder", label: "Upper Back / Shoulder", eligible: ["cable_row", "face_pull"] },
+    { id: "arms", label: "Arms", eligible: ["bicep_curl", "tricep_push"] },
   ],
-};
-
-const THIRD_SLOT_OPTIONS = {
-  arms: { id: "arms", label: "Arms", eligible: ["bicep_curl", "tricep_push"] },
-  abs:  { id: "abs",  label: "Abs",  eligible: ["dec_crunch"] },
-  free: { id: "free", label: "Free Choice", eligible: ACCESSORIES.map(a => a.id) },
 };
 
 const ACC_TEMPLATES = {
-  A: { label: "Workout A Favorites", ids: ["lat_pulldown", "face_pull", "bicep_curl"] },
-  B: { label: "Workout B Favorites", ids: ["leg_curl", "lateral_raise", "tricep_push"] },
+  A: { label: "Workout A Favorites", ids: ["lat_pulldown", "face_pull", "leg_curl"] },
+  B: { label: "Workout B Favorites", ids: ["leg_curl", "cable_row", "tricep_push"] },
   pull: { label: "Pull Day", ids: ["lat_pulldown", "cable_row", "bicep_curl", "face_pull"] },
   push: { label: "Push Extras", ids: ["lateral_raise", "tricep_push", "rear_delt_fly"] },
 };
@@ -312,11 +309,8 @@ function getCalendarData(history) {
   return map;
 }
 
-function getRequiredCategories(workoutKey, settings) {
-  const base = REQUIRED_CATEGORIES[workoutKey] || [];
-  const thirdSlotKey = workoutKey === "A" ? settings.thirdSlotA : settings.thirdSlotB;
-  const thirdSlot = THIRD_SLOT_OPTIONS[thirdSlotKey || "free"];
-  return [...base, thirdSlot];
+function getRequiredCategories(workoutKey) {
+  return REQUIRED_CATEGORIES[workoutKey] || [];
 }
 
 function checkCategoryCompletion(categories, accItems) {
@@ -484,7 +478,7 @@ function useWorkoutStorage() {
   const [bwHistory, setBwHistory] = useState([]);
   const [measurements, setMeasurements] = useState([]);
   const [nextWorkout, setNextWorkout] = useState("A");
-  const [settings, setSettings] = useState({ autoRestTimer: true, thirdSlotA: "abs", thirdSlotB: "arms" });
+  const [settings, setSettings] = useState({ autoRestTimer: true });
   const [customTemplates, setCustomTemplates] = useState(ACC_TEMPLATES);
   const [loading, setLoading] = useState(true);
   const [recoveredSession, setRecoveredSession] = useState(null);
@@ -1377,7 +1371,7 @@ function LogView({
 
       {/* Required Accessory Categories */}
       {session?.workout && (() => {
-        const reqCats = getRequiredCategories(session.workout, settings);
+        const reqCats = getRequiredCategories(session.workout);
         const catStatus = checkCategoryCompletion(reqCats, accItems);
         const allDone = catStatus.every(c => c.completed);
         return (
@@ -1582,7 +1576,7 @@ function HistoryView({ history, onEdit }) {
    VIEW: Progress
    ═══════════════════════════════════════════ */
 
-function ProgressView({ history, dup, prs, bwHistory, measurements, selEx, setSelEx, onExport, onShowImport, settings, onSaveSettings }) {
+function ProgressView({ history, dup, prs, bwHistory, measurements, selEx, setSelEx, onExport, onShowImport }) {
   const volumeData = useMemo(() => getVolumeHistory(history), [history]);
   const calendarData = useMemo(() => getCalendarData(history), [history]);
   return (
@@ -2064,41 +2058,6 @@ function ProgressView({ history, dup, prs, bwHistory, measurements, selEx, setSe
         })()}
       </div>
 
-      {/* Settings */}
-      <div className="bg-gray-900 rounded-2xl p-4 border border-gray-800">
-        <div className="font-semibold mb-3">Settings</div>
-        <div className="space-y-3">
-          <div>
-            <div className="text-xs text-gray-400 mb-1">Workout A — 3rd required category</div>
-            <div className="flex gap-2">
-              {Object.entries(THIRD_SLOT_OPTIONS).map(([key, opt]) => (
-                <button key={key}
-                  onClick={() => onSaveSettings({ ...settings, thirdSlotA: key })}
-                  className={`flex-1 py-2 rounded-xl text-xs font-semibold transition-colors ${
-                    settings.thirdSlotA === key ? "bg-navy text-navy-light" : "bg-gray-800 text-gray-400"
-                  }`}>
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div>
-            <div className="text-xs text-gray-400 mb-1">Workout B — 3rd required category</div>
-            <div className="flex gap-2">
-              {Object.entries(THIRD_SLOT_OPTIONS).map(([key, opt]) => (
-                <button key={key}
-                  onClick={() => onSaveSettings({ ...settings, thirdSlotB: key })}
-                  className={`flex-1 py-2 rounded-xl text-xs font-semibold transition-colors ${
-                    settings.thirdSlotB === key ? "bg-navy text-navy-light" : "bg-gray-800 text-gray-400"
-                  }`}>
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
-
       {/* Export / Import */}
       <div className="bg-gray-900 rounded-2xl p-4 border border-gray-800 space-y-3">
         <div className="font-semibold mb-1">Data Management</div>
@@ -2554,7 +2513,7 @@ export default function App() {
           suggested={suggested} lastDone={lastDone} customTemplates={customTemplates}
           onToggleOverride={toggleOverride} onSave={() => {
             if (session) {
-              const reqCats = getRequiredCategories(session.workout, settings);
+              const reqCats = getRequiredCategories(session.workout);
               const catStatus = checkCategoryCompletion(reqCats, accItems);
               if (catStatus.some(c => !c.completed)) {
                 setCategoryWarn(true);
@@ -2581,7 +2540,6 @@ export default function App() {
           measurements={measurements}
           selEx={selEx} setSelEx={setSelEx}
           onExport={handleExport} onShowImport={() => setShowImport(true)}
-          settings={settings} onSaveSettings={saveSettings}
         />
       )}
     </div>
