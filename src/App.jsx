@@ -201,7 +201,11 @@ function applyDUPProgression(currentDup, completedExercises) {
 
   completedExercises.forEach(exercise => {
     const config = EXERCISES[exercise.id];
-    if (!config || !updated[exercise.id]) return;
+    if (!config) return;
+    // Initialize dup state for any exercise that lacks it (e.g. newly added glute/substitute lifts)
+    if (!updated[exercise.id]) {
+      updated[exercise.id] = { hW: config.hW, sW: config.sW, hStalls: 0, sStalls: 0, nextType: "hypertrophy" };
+    }
 
     const sessionType = exercise.sessionType;
     const targetReps = sessionType === "hypertrophy" ? config.repMax : config.sRepMax;
@@ -2419,36 +2423,42 @@ export default function App() {
   }
 
   function saveSession() {
-    clearInterval(timerRef.current);
-    const duration = Math.floor((Date.now() - sessStart) / 60000);
-    const fullSession = { ...session, rpe, note, duration, accessories: accItems };
-    const newHistory = [...history, fullSession];
-    const newDup = applyDUPProgression(dup, session.exercises);
-    const newNextWorkout = session.workout === "A" ? "B" : "A";
+    try {
+      clearInterval(timerRef.current);
+      const duration = Math.floor((Date.now() - sessStart) / 60000);
+      const fullSession = { ...session, rpe, note, duration, accessories: accItems };
+      const newHistory = [...history, fullSession];
+      const newDup = applyDUPProgression(dup, session.exercises);
+      const newNextWorkout = session.workout === "A" ? "B" : "A";
 
-    const resetNotifications = [];
-    session.exercises.forEach(exercise => {
-      const oldState = dup[exercise.id];
-      const newState = newDup[exercise.id];
-      const sessionType = exercise.sessionType;
-      if (sessionType === "hypertrophy" && newState.hW < oldState.hW) {
-        resetNotifications.push(`${exercise.name} (hyp): reset to ${newState.hW}lb`);
+      const resetNotifications = [];
+      session.exercises.forEach(exercise => {
+        const oldState = dup[exercise.id];
+        const newState = newDup[exercise.id];
+        if (!oldState || !newState) return; // skip exercises with no prior dup state
+        const sessionType = exercise.sessionType;
+        if (sessionType === "hypertrophy" && newState.hW < oldState.hW) {
+          resetNotifications.push(`${exercise.name} (hyp): reset to ${newState.hW}lb`);
+        }
+        if (sessionType === "strength" && newState.sW < oldState.sW) {
+          resetNotifications.push(`${exercise.name} (str): reset to ${newState.sW}lb`);
+        }
+      });
+
+      saveHistory(newHistory);
+      saveDup(newDup);
+      saveNextWorkout(newNextWorkout);
+      clearActiveSession();
+
+      if (resetNotifications.length) {
+        setResets(resetNotifications);
+      } else {
+        setSaved(true);
+        setTimeout(() => { setSaved(false); setSession(null); setView("home"); }, 1400);
       }
-      if (sessionType === "strength" && newState.sW < oldState.sW) {
-        resetNotifications.push(`${exercise.name} (str): reset to ${newState.sW}lb`);
-      }
-    });
-
-    saveHistory(newHistory);
-    saveDup(newDup);
-    saveNextWorkout(newNextWorkout);
-    clearActiveSession();
-
-    if (resetNotifications.length) {
-      setResets(resetNotifications);
-    } else {
-      setSaved(true);
-      setTimeout(() => { setSaved(false); setSession(null); setView("home"); }, 1400);
+    } catch (err) {
+      console.error("saveSession failed:", err);
+      alert("Save failed: " + (err?.message || "unknown error") + "\n\nYour session is still active. Screenshot this and report it.");
     }
   }
 
