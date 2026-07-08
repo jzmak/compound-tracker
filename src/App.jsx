@@ -528,6 +528,33 @@ function useWorkoutStorage() {
 
   useEffect(() => {
     try {
+      // If there is no real history in storage yet (fresh browser, cleared data,
+      // or a URL that never had data), seed from the user's baked-in export.
+      const existingHist = storageGet(STORAGE_KEYS.history);
+      const hasRealData = Array.isArray(existingHist) && existingHist.length > 0;
+
+      if (!hasRealData) {
+        const mergedDup = { ...initializeDUP(), ...USER_SEED.dup };
+        setHistory(USER_SEED.history);
+        storageSet(STORAGE_KEYS.history, USER_SEED.history);
+        setDup(mergedDup);
+        storageSet(STORAGE_KEYS.dup, mergedDup);
+        setNextWorkout(USER_SEED.next);
+        storageSetRaw(STORAGE_KEYS.next, USER_SEED.next);
+        setBwHistory(USER_SEED.bw);
+        storageSet(STORAGE_KEYS.bw, USER_SEED.bw);
+        setMeasurements(USER_SEED.measurements);
+        storageSet(STORAGE_KEYS.measurements, USER_SEED.measurements);
+        storageSetRaw(STORAGE_KEYS.version, String(STORAGE_VERSION));
+
+        const savedSettings = storageGet(STORAGE_KEYS.settings);
+        if (savedSettings) setSettings(prev => ({ ...prev, ...savedSettings }));
+        const savedTemplates = storageGet(STORAGE_KEYS.accTemplates);
+        if (savedTemplates) setCustomTemplates(prev => ({ ...prev, ...savedTemplates }));
+        setLoading(false);
+        return;
+      }
+
       const migrated = migrateIfNeeded();
 
       if (migrated) {
