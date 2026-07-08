@@ -3,6 +3,7 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Legend
 } from "recharts";
+import { USER_SEED } from "./userSeed.js";
 
 /* ═══════════════════════════════════════════
    CONSTANTS & CONFIG
@@ -552,13 +553,19 @@ function useWorkoutStorage() {
           const measData = storageGet(STORAGE_KEYS.measurements);
           if (Array.isArray(measData) && measData.length > 0) setMeasurements(measData);
         } else {
-          // First launch: inject seed data and skip further reads
-          setHistory(SEED_HISTORY);
-          storageSet(STORAGE_KEYS.history, SEED_HISTORY);
-          setDup(SEED_DUP);
-          storageSet(STORAGE_KEYS.dup, SEED_DUP);
-          setNextWorkout(SEED_NEXT_WORKOUT);
-          storageSetRaw(STORAGE_KEYS.next, SEED_NEXT_WORKOUT);
+          // First launch: inject user's real exported data as seed
+          setHistory(USER_SEED.history);
+          storageSet(STORAGE_KEYS.history, USER_SEED.history);
+          // Merge user's saved weights over full defaults so new exercises (glute compounds, substitutes) have valid state
+          const mergedDup = { ...initializeDUP(), ...USER_SEED.dup };
+          setDup(mergedDup);
+          storageSet(STORAGE_KEYS.dup, mergedDup);
+          setNextWorkout(USER_SEED.next);
+          storageSetRaw(STORAGE_KEYS.next, USER_SEED.next);
+          setBwHistory(USER_SEED.bw);
+          storageSet(STORAGE_KEYS.bw, USER_SEED.bw);
+          setMeasurements(USER_SEED.measurements);
+          storageSet(STORAGE_KEYS.measurements, USER_SEED.measurements);
           storageSetRaw(STORAGE_KEYS.version, String(STORAGE_VERSION));
         }
       }
@@ -1174,7 +1181,7 @@ function HomeView({ dup, history, bwHistory, nextWorkout, prs, streak, missed, l
 
             {workout.exercises.map(id => {
               const config = EXERCISES[id];
-              const dupState = dup[id];
+              const dupState = dup[id] || { hW: config.hW, sW: config.sW, hStalls: 0, sStalls: 0 };
               const emphasis = wEmphasis[workoutKey] || workout.defaultEmphasis;
               const isHyp = emphasis === "hypertrophy";
               const weight = isHyp ? dupState.hW : dupState.sW;
@@ -1788,7 +1795,7 @@ function ProgressView({ history, dup, prs, bwHistory, measurements, selEx, setSe
         <div className="font-semibold mb-3">Current Working Weights</div>
         {ALL_COMPOUND_IDS.map(id => {
           const config = EXERCISES[id];
-          const dupState = dup[id];
+          const dupState = dup[id] || { hW: config.hW, sW: config.sW, hStalls: 0, sStalls: 0 };
           const isExpanded = selEx === id;
           const sessions = history.filter(session => session.exercises?.find(ex => ex.id === id));
           const chartData = sessions.map(session => {
@@ -2460,15 +2467,15 @@ export default function App() {
 
   function handleImport(data) {
     if (data.sessions) saveHistory(data.sessions);
-    if (data.dupState) saveDup(data.dupState);
+    if (data.dupState) saveDup({ ...initializeDUP(), ...data.dupState });
     if (data.measurements) {
       storageSet(STORAGE_KEYS.measurements, data.measurements);
     }
     if (data.bwHistory) {
       storageSet(STORAGE_KEYS.bw, data.bwHistory);
-      window.location.reload();
     }
     setShowImport(false);
+    window.location.reload();
   }
 
   function handleExport() {
