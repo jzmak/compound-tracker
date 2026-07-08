@@ -18,18 +18,50 @@ const STORAGE_VERSION = 6;
 const EDITABLE_SESSION_COUNT = 3;
 
 const EXERCISES = {
-  belt_squat:     { name: "Belt Squat",            bar: "none",   inc: 5,   repMin: 8,  repMax: 10, sRepMin: 5, sRepMax: 8,  sets: 3, resetPct: 0.10,  stallN: 3, hW: 140, sW: 160 },
+  belt_squat:     { name: "Belt Squat",            bar: "none",     inc: 5,   repMin: 8,  repMax: 10, sRepMin: 5, sRepMax: 8,  sets: 3, resetPct: 0.10,  stallN: 3, hW: 140, sW: 160 },
+  lever_squat:    { name: "Lever Squat Machine",   bar: "none",     inc: 5,   repMin: 8,  repMax: 10, sRepMin: 5, sRepMax: 8,  sets: 3, resetPct: 0.10,  stallN: 3, hW: 130, sW: 130, note: "total plates" },
+  zercher_squat:  { name: "Zercher Squat",         bar: "barbell",  inc: 5,   repMin: 8,  repMax: 10, sRepMin: 5, sRepMax: 8,  sets: 3, resetPct: 0.10,  stallN: 3, hW: 95,  sW: 115, note: "total incl. bar" },
   standing_press: { name: "Barbell Standing Press", bar: "barbell", inc: 2.5, repMin: 6,  repMax: 10, sRepMin: 4, sRepMax: 6,  sets: 3, resetPct: 0.075, stallN: 3, hW: 95,  sW: 110, note: "total incl. bar" },
-  tbar_row:       { name: "Lying T-Bar Row",       bar: "none",   inc: 5,   repMin: 8,  repMax: 12, sRepMin: 5, sRepMax: 8,  sets: 3, resetPct: 0.10,  stallN: 3, hW: 70,  sW: 80,  note: "plates only" },
-  hex_deadlift:   { name: "Hex Bar Deadlift",      bar: "hex",    inc: 5,   repMin: 5,  repMax: 8,  sRepMin: 3, sRepMax: 5,  sets: 3, resetPct: 0.10,  stallN: 2, hW: 165, sW: 190, priority: true },
-  incline_smith:  { name: "Incline Smith Press",   bar: "smith",  inc: 5,   repMin: 8,  repMax: 10, sRepMin: 5, sRepMax: 8,  sets: 3, resetPct: 0.085, stallN: 3, hW: 90,  sW: 105, note: "plates only" },
-  leg_press:      { name: "Leg Press",             bar: "none",   inc: 10,  repMin: 10, repMax: 15, sRepMin: 6, sRepMax: 10, sets: 3, resetPct: 0.10,  stallN: 3, hW: 225, sW: 260 },
+  seated_press:   { name: "Seated Machine Press",  bar: "none",     inc: 5,   repMin: 6,  repMax: 10, sRepMin: 4, sRepMax: 6,  sets: 3, resetPct: 0.075, stallN: 3, hW: 120, sW: 120, note: "stack weight" },
+  tbar_row:       { name: "Lying T-Bar Row",       bar: "none",     inc: 5,   repMin: 8,  repMax: 12, sRepMin: 5, sRepMax: 8,  sets: 3, resetPct: 0.10,  stallN: 3, hW: 70,  sW: 80,  note: "plates only" },
+  db_row:         { name: "Heavy Dumbbell Row",    bar: "dumbbell", inc: 5,   repMin: 8,  repMax: 12, sRepMin: 5, sRepMax: 8,  sets: 3, resetPct: 0.10,  stallN: 3, hW: 70,  sW: 85,  note: "per dumbbell" },
+  hex_deadlift:   { name: "Hex Bar Deadlift",      bar: "hex",      inc: 5,   repMin: 5,  repMax: 8,  sRepMin: 3, sRepMax: 5,  sets: 3, resetPct: 0.10,  stallN: 2, hW: 165, sW: 190, priority: true },
+  incline_smith:  { name: "Incline Smith Press",   bar: "smith",    inc: 5,   repMin: 8,  repMax: 10, sRepMin: 5, sRepMax: 8,  sets: 3, resetPct: 0.085, stallN: 3, hW: 90,  sW: 105, note: "plates only" },
+  incline_db:     { name: "Incline Dumbbell Press", bar: "dumbbell", inc: 5,  repMin: 8,  repMax: 10, sRepMin: 5, sRepMax: 8,  sets: 3, resetPct: 0.085, stallN: 3, hW: 50,  sW: 65,  note: "per dumbbell" },
+  leg_press:      { name: "Leg Press",             bar: "none",     inc: 10,  repMin: 10, repMax: 15, sRepMin: 6, sRepMax: 10, sets: 3, resetPct: 0.10,  stallN: 3, hW: 225, sW: 260 },
+  hack_squat:     { name: "Hack Squat Machine",    bar: "none",     inc: 10,  repMin: 10, repMax: 15, sRepMin: 6, sRepMax: 10, sets: 3, resetPct: 0.10,  stallN: 3, hW: 180, sW: 200, note: "total plates" },
+  standing_ht:    { name: "Standing Hip Thrust",   bar: "none",     inc: 5,   repMin: 8,  repMax: 12, sRepMin: 5, sRepMax: 8,  sets: 3, resetPct: 0.10,  stallN: 3, hW: 110, sW: 120, note: "Booty Builder, total plates" },
+  ht_machine:     { name: "Hip Thrust Machine",    bar: "none",     inc: 5,   repMin: 8,  repMax: 12, sRepMin: 5, sRepMax: 8,  sets: 3, resetPct: 0.10,  stallN: 3, hW: 110, sW: 120, note: "Platinum V4, total plates" },
+  rdl_barbell:    { name: "Romanian Deadlift",     bar: "barbell",  inc: 5,   repMin: 8,  repMax: 12, sRepMin: 5, sRepMax: 8,  sets: 3, resetPct: 0.10,  stallN: 3, hW: 95,  sW: 115, note: "total incl. bar" },
+  single_leg_rdl: { name: "Single-Leg RDL",        bar: "dumbbell", inc: 5,   repMin: 8,  repMax: 12, sRepMin: 5, sRepMax: 8,  sets: 3, resetPct: 0.10,  stallN: 3, hW: 20,  sW: 30,  note: "per dumbbell" },
 };
 
 const WORKOUTS = {
-  A: { label: "Workout A — Full Body (Squat)", exercises: ["belt_squat", "standing_press", "tbar_row"],     defaultEmphasis: "hypertrophy" },
-  B: { label: "Workout B — Full Body (Hinge)", exercises: ["hex_deadlift", "incline_smith", "leg_press"],   defaultEmphasis: "strength" },
+  A: {
+    label: "Workout A — Full Body (Squat)",
+    defaultEmphasis: "hypertrophy",
+    slots: [
+      { primary: "belt_squat", alternates: ["lever_squat", "zercher_squat"] },
+      { primary: "standing_press", alternates: ["seated_press"] },
+      { primary: "tbar_row", alternates: ["db_row"] },
+      { primary: "standing_ht", alternates: ["ht_machine", "rdl_barbell", "single_leg_rdl"] },
+    ],
+    get exercises() { return this.slots.map(s => s.primary); },
+  },
+  B: {
+    label: "Workout B — Full Body (Hinge)",
+    defaultEmphasis: "strength",
+    slots: [
+      { primary: "hex_deadlift", alternates: [] },
+      { primary: "incline_smith", alternates: ["incline_db"] },
+      { primary: "leg_press", alternates: ["hack_squat"] },
+      { primary: "rdl_barbell", alternates: ["standing_ht", "ht_machine", "single_leg_rdl"] },
+    ],
+    get exercises() { return this.slots.map(s => s.primary); },
+  },
 };
+
+const ALL_COMPOUND_IDS = Object.keys(EXERCISES);
 
 const ACCESSORIES = [
   { id: "lat_pulldown",  name: "Lat Pulldown",      muscle: "Back",       categories: ["vertical_pull"] },
@@ -42,6 +74,9 @@ const ACCESSORIES = [
   { id: "tricep_push",   name: "Tricep Pushdown",   muscle: "Triceps",    categories: ["arms"] },
   { id: "leg_curl",      name: "Leg Curl",          muscle: "Hamstrings", categories: ["hamstring_posterior"] },
   { id: "dec_crunch",    name: "Decline Crunch",    muscle: "Core",       categories: ["abs"] },
+  { id: "dead_bug",      name: "Dead Bug",          muscle: "Core",       categories: ["abs"] },
+  { id: "ab_wheel",      name: "Ab Wheel Rollout",  muscle: "Core",       categories: ["abs"] },
+  { id: "pallof_press",  name: "Pallof Press",      muscle: "Core",       categories: ["abs"] },
   { id: "hip_thrust",    name: "Hip Thrust",        muscle: "Glutes",     categories: ["hamstring_posterior"] },
   { id: "rdl",           name: "Romanian Deadlift",  muscle: "Hamstrings/Glutes", categories: ["hamstring_posterior"] },
 ];
@@ -50,10 +85,8 @@ const REQUIRED_CATEGORIES = {
   A: [
     { id: "vertical_pull", label: "Vertical Pull", eligible: ["lat_pulldown"] },
     { id: "delt_upper_back", label: "Delt / Upper Back", eligible: ["face_pull", "rear_delt_fly"] },
-    { id: "hamstring_posterior", label: "Hamstring / Posterior", eligible: ["leg_curl", "hip_thrust", "rdl"] },
   ],
   B: [
-    { id: "hamstring_posterior", label: "Hamstring / Posterior", eligible: ["leg_curl", "hip_thrust", "rdl"] },
     { id: "upper_back_shoulder", label: "Upper Back / Shoulder", eligible: ["cable_row", "face_pull"] },
     { id: "arms", label: "Arms", eligible: ["bicep_curl", "tricep_push"] },
   ],
@@ -66,9 +99,8 @@ const ACC_TEMPLATES = {
   push: { label: "Push Extras", ids: ["lateral_raise", "tricep_push", "rear_delt_fly"] },
 };
 
-const BAR_WEIGHTS = { barbell: 45, smith: 25, hex: 55, none: 0 };
+const BAR_WEIGHTS = { barbell: 45, smith: 25, hex: 55, none: 0, dumbbell: 0 };
 const PLATES = [45, 35, 25, 10, 5, 2.5];
-const ALL_EXERCISE_IDS = [...WORKOUTS.A.exercises, ...WORKOUTS.B.exercises];
 const TYPE_COLORS = { hypertrophy: "#93c5fd", strength: "#f97316" };
 
 const STORAGE_KEYS = {
@@ -156,7 +188,7 @@ function getWeeklyStreak(history) {
 
 function initializeDUP() {
   const state = {};
-  ALL_EXERCISE_IDS.forEach(id => {
+  ALL_COMPOUND_IDS.forEach(id => {
     const config = EXERCISES[id];
     state[id] = { hW: config.hW, sW: config.sW, hStalls: 0, sStalls: 0, nextType: "hypertrophy" };
   });
@@ -207,7 +239,7 @@ function applyDUPProgression(currentDup, completedExercises) {
 
 function getPersonalRecords(history) {
   const records = {};
-  ALL_EXERCISE_IDS.forEach(id => { records[id] = { weight: 0, e1rm: 0 }; });
+  ALL_COMPOUND_IDS.forEach(id => { records[id] = { weight: 0, e1rm: 0 }; });
 
   history.forEach(session => {
     session.exercises?.forEach(exercise => {
@@ -393,11 +425,21 @@ const SEED_HISTORY = [
 // Session B (str): hex_deadlift hit 5 all sets → sW 160+5=165; incline hit 8>=8 → sW 125+5=130; leg_press hit 10 all sets → sW 230+5=235
 const SEED_DUP = {
   belt_squat:     { hW: 185, sW: 200, hStalls: 0, sStalls: 0, nextType: "strength" },
+  lever_squat:    { hW: 130, sW: 130, hStalls: 0, sStalls: 0, nextType: "hypertrophy" },
+  zercher_squat:  { hW: 95,  sW: 115, hStalls: 0, sStalls: 0, nextType: "hypertrophy" },
   standing_press: { hW: 95,  sW: 110, hStalls: 1, sStalls: 0, nextType: "strength" },
+  seated_press:   { hW: 120, sW: 120, hStalls: 0, sStalls: 0, nextType: "hypertrophy" },
   tbar_row:       { hW: 70,  sW: 80,  hStalls: 1, sStalls: 0, nextType: "strength" },
+  db_row:         { hW: 70,  sW: 85,  hStalls: 0, sStalls: 0, nextType: "hypertrophy" },
   hex_deadlift:   { hW: 165, sW: 165, hStalls: 0, sStalls: 0, nextType: "hypertrophy" },
   incline_smith:  { hW: 90,  sW: 130, hStalls: 0, sStalls: 0, nextType: "hypertrophy" },
+  incline_db:     { hW: 50,  sW: 65,  hStalls: 0, sStalls: 0, nextType: "hypertrophy" },
   leg_press:      { hW: 225, sW: 235, hStalls: 0, sStalls: 0, nextType: "hypertrophy" },
+  hack_squat:     { hW: 180, sW: 200, hStalls: 0, sStalls: 0, nextType: "hypertrophy" },
+  standing_ht:    { hW: 110, sW: 120, hStalls: 0, sStalls: 0, nextType: "hypertrophy" },
+  ht_machine:     { hW: 110, sW: 120, hStalls: 0, sStalls: 0, nextType: "hypertrophy" },
+  rdl_barbell:    { hW: 95,  sW: 115, hStalls: 0, sStalls: 0, nextType: "hypertrophy" },
+  single_leg_rdl: { hW: 20,  sW: 30,  hStalls: 0, sStalls: 0, nextType: "hypertrophy" },
 };
 
 const SEED_NEXT_WORKOUT = "A";
@@ -1184,9 +1226,30 @@ function HomeView({ dup, history, bwHistory, nextWorkout, prs, streak, missed, l
 function LogView({
   session, setSession, elapsed, prs, emphasisOvr, settings,
   accItems, setAccItems, rpe, setRpe, note, setNote, suggested, lastDone,
-  customTemplates, onToggleOverride, onSave, onShowPlates, onShowTimer,
+  customTemplates, onToggleOverride, onSwapExercise, onSave, onShowPlates, onShowTimer,
   onShowAccPicker, onShowTemplatePicker, accMode, setAccMode, saved
 }) {
+  const [swapPickerIdx, setSwapPickerIdx] = useState(null);
+
+  function completeAllSets(exerciseIdx) {
+    setSession(prev => {
+      const exercises = [...prev.exercises];
+      const ex = exercises[exerciseIdx];
+      exercises[exerciseIdx] = {
+        ...ex,
+        sets: ex.sets.map(s => ({
+          reps: s.reps || String(ex.targetReps),
+          completed: true,
+        })),
+      };
+      return { ...prev, exercises };
+    });
+    if (settings.autoRestTimer) {
+      const ex = session.exercises[exerciseIdx];
+      onShowTimer(ex.rest);
+    }
+  }
+
   function updateSet(exerciseIdx, setIdx, field, value) {
     setSession(prev => {
       const exercises = [...prev.exercises];
@@ -1244,6 +1307,9 @@ function LogView({
       {session.exercises.map((exercise, exIdx) => {
         const config = EXERCISES[exercise.id];
         const prFlag = exercise.weight > (prs[exercise.id]?.weight || 0);
+        const slot = WORKOUTS[session.workout]?.slots?.[exIdx];
+        const hasAlternates = slot && slot.alternates.length > 0;
+        const allSlotOptions = hasAlternates ? [slot.primary, ...slot.alternates] : [];
         const topEstimate = Math.max(
           ...exercise.sets
             .filter(set => set.completed && parseFloat(set.reps) > 0)
@@ -1259,12 +1325,34 @@ function LogView({
         ].filter(ws => ws.weight > 0 && ws.weight < exercise.weight);
 
         return (
-          <div key={exercise.id} className="bg-gray-900 rounded-2xl p-4 border border-gray-800">
+          <div key={exercise.id + "-" + exIdx} className="bg-gray-900 rounded-2xl p-4 border border-gray-800">
             <div className="flex justify-between items-start mb-2">
               <div>
                 <div className="font-semibold flex items-center gap-2">
                   {exercise.name}
                   {prFlag && <span className="text-xs bg-yellow-500 text-black px-1.5 py-0.5 rounded-full font-bold">PR</span>}
+                  {hasAlternates && (
+                    <div className="relative">
+                      <button onClick={() => setSwapPickerIdx(swapPickerIdx === exIdx ? null : exIdx)}
+                        className="text-xs px-2 py-0.5 rounded border border-gray-600 text-gray-400 active:bg-gray-700">
+                        swap ▾
+                      </button>
+                      {swapPickerIdx === exIdx && (
+                        <div className="absolute left-0 top-7 z-20 bg-gray-800 border border-gray-700 rounded-xl overflow-hidden shadow-lg min-w-44">
+                          {allSlotOptions.map(optId => (
+                            <button key={optId}
+                              onClick={() => { onSwapExercise(exIdx, optId); setSwapPickerIdx(null); }}
+                              className={`block w-full text-left px-3 py-2 text-xs transition-colors ${
+                                optId === exercise.id ? "bg-gray-700 text-white" : "text-gray-300 hover:bg-gray-700"
+                              }`}>
+                              {EXERCISES[optId]?.name}
+                              {optId === exercise.id && " ✓"}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
                 {exercise.note && <div className="text-xs text-gray-500">{exercise.note}</div>}
                 <div className="flex items-center gap-2 mt-1 flex-wrap">
@@ -1302,6 +1390,11 @@ function LogView({
 
             {/* Inline plate breakdown */}
             {(() => {
+              if (config.bar === "dumbbell") return (
+                <div className="bg-gray-800 rounded-lg px-3 py-1.5 mb-2 text-xs text-gray-500">
+                  <span className="text-gray-300">{exercise.weight}lb</span> per dumbbell
+                </div>
+              );
               const barW = BAR_WEIGHTS[config.bar] || 0;
               const plates = calculatePlates(exercise.weight, barW);
               if (plates.length === 0 && barW > 0) return (
@@ -1362,6 +1455,12 @@ function LogView({
                 </div>
               ))}
             </div>
+            {!exercise.sets.every(s => s.completed) && (
+              <button onClick={() => completeAllSets(exIdx)}
+                className="mt-2 w-full py-2 rounded-xl text-xs font-semibold bg-green-900 bg-opacity-40 border border-green-800 text-green-300 active:bg-opacity-60">
+                ✓ Complete all sets at shown reps
+              </button>
+            )}
             <div className="mt-2 text-xs text-gray-600">
               Progress at {exercise.targetReps} reps all sets → +{EXERCISES[exercise.id]?.inc || 5}lb
             </div>
@@ -1687,7 +1786,7 @@ function ProgressView({ history, dup, prs, bwHistory, measurements, selEx, setSe
       {/* Current Working Weights (expandable with charts) */}
       <div className="bg-gray-900 rounded-2xl p-4 border border-gray-800">
         <div className="font-semibold mb-3">Current Working Weights</div>
-        {ALL_EXERCISE_IDS.map(id => {
+        {ALL_COMPOUND_IDS.map(id => {
           const config = EXERCISES[id];
           const dupState = dup[id];
           const isExpanded = selEx === id;
@@ -1745,7 +1844,7 @@ function ProgressView({ history, dup, prs, bwHistory, measurements, selEx, setSe
       {/* Personal Records */}
       <div className="bg-gray-900 rounded-2xl p-4 border border-gray-800">
         <div className="font-semibold mb-3">Personal Records</div>
-        {ALL_EXERCISE_IDS.map(id => {
+        {ALL_COMPOUND_IDS.map(id => {
           const config = EXERCISES[id];
           const pr = prs[id];
           return (
@@ -1764,7 +1863,7 @@ function ProgressView({ history, dup, prs, bwHistory, measurements, selEx, setSe
       <div className="bg-gray-900 rounded-2xl p-4 border border-gray-800">
         <div className="font-semibold mb-3">Weight Progression</div>
         <div className="flex flex-wrap gap-2 mb-4">
-          {ALL_EXERCISE_IDS.map(id => (
+          {ALL_COMPOUND_IDS.map(id => (
             <button key={id} onClick={() => setSelEx(id)}
               className={`text-xs px-3 py-1.5 rounded-full border transition-colors ${
                 selEx === id ? "bg-navy border-navy text-navy-light" : "border-gray-700 text-gray-400"
@@ -2094,7 +2193,7 @@ export default function App() {
   const [restSecs, setRestSecs] = useState(90);
   const [showPlates, setShowPlates] = useState(false);
   const [showBW, setShowBW] = useState(false);
-  const [selEx, setSelEx] = useState(ALL_EXERCISE_IDS[0]);
+  const [selEx, setSelEx] = useState(ALL_COMPOUND_IDS[0]);
   const [rpe, setRpe] = useState(null);
   const [note, setNote] = useState("");
   const [sessStart, setSessStart] = useState(null);
@@ -2105,6 +2204,7 @@ export default function App() {
   const [showAccPicker, setShowAccPicker] = useState(false);
   const [showTemplatePicker, setShowTemplatePicker] = useState(false);
   const [emphasisOvr, setEmphasisOvr] = useState({});
+  const [slotSelections, setSlotSelections] = useState({});
   const [wEmphasis, setWEmphasis] = useState({});
   const [navGuard, setNavGuard] = useState(null);
   const [editingSession, setEditingSession] = useState(null);
@@ -2154,7 +2254,7 @@ export default function App() {
   useEffect(() => {
     if (session && sessStart) {
       const sessionSnapshot = {
-        session, accItems, rpe, note, emphasisOvr, accMode,
+        session, accItems, rpe, note, emphasisOvr, accMode, slotSelections,
         sessStart, elapsed: Math.floor((Date.now() - sessStart) / 1000),
         timestamp: Date.now(),
       };
@@ -2174,13 +2274,16 @@ export default function App() {
   const recentRPEs = history.slice(-FATIGUE_WINDOW).map(session => session.rpe).filter(Boolean);
   const fatigue = recentRPEs.length >= FATIGUE_WINDOW - 1 && recentRPEs.every(r => r >= FATIGUE_RPE_THRESHOLD);
 
-  function buildSession(workoutKey, overrides) {
+  function buildSession(workoutKey, overrides, selections) {
     const workoutEmphasis = wEmphasis[workoutKey] || WORKOUTS[workoutKey].defaultEmphasis;
-    const exercises = WORKOUTS[workoutKey].exercises.map(id => {
+    const workout = WORKOUTS[workoutKey];
+    const exerciseIds = workout.slots.map((slot, i) => selections?.[i] || slot.primary);
+    const exercises = exerciseIds.map(id => {
       const config = EXERCISES[id];
       const effectiveEmphasis = overrides[id] || workoutEmphasis;
       const isHyp = effectiveEmphasis === "hypertrophy";
-      const weight = isHyp ? dup[id].hW : dup[id].sW;
+      const dupState = dup[id] || { hW: config.hW, sW: config.sW, hStalls: 0, sStalls: 0 };
+      const weight = isHyp ? dupState.hW : dupState.sW;
       const targetReps = isHyp ? config.repMax : config.sRepMax;
       const repMin = isHyp ? config.repMin : config.sRepMin;
 
@@ -2195,10 +2298,10 @@ export default function App() {
         weight, targetReps, repMin, sessionType: effectiveEmphasis,
         rest: isHyp ? 90 : 180,
         lastWeight, lastSets,
-        stalls: isHyp ? dup[id].hStalls : dup[id].sStalls,
+        stalls: isHyp ? dupState.hStalls : dupState.sStalls,
         stallN: config.stallN,
         sets: Array.from({ length: config.sets }, (_, setIdx) => ({
-          reps: lastSets?.[setIdx]?.completed ? lastSets[setIdx].reps : "",
+          reps: lastSets?.[setIdx]?.reps || String(targetReps),
           completed: false,
         })),
       };
@@ -2214,7 +2317,9 @@ export default function App() {
   }
 
   function startSession(workoutKey) {
-    const exercises = buildSession(workoutKey, {});
+    const defaultSelections = {};
+    setSlotSelections(defaultSelections);
+    const exercises = buildSession(workoutKey, {}, defaultSelections);
     setRpe(null);
     setNote("");
     setSessStart(Date.now());
@@ -2230,12 +2335,30 @@ export default function App() {
     setView("log");
   }
 
+  function swapExercise(slotIdx, newExerciseId) {
+    if (!session) return;
+    const newSelections = { ...slotSelections, [slotIdx]: newExerciseId };
+    setSlotSelections(newSelections);
+    const exercises = buildSession(session.workout, emphasisOvr, newSelections);
+    setSession(prev => ({
+      ...prev,
+      exercises: exercises.map((ex, i) => {
+        // Preserve sets data for slots that didn't change
+        if (prev.exercises[i]?.id === ex.id) {
+          return { ...ex, sets: prev.exercises[i].sets };
+        }
+        return ex; // New exercise gets fresh sets
+      }),
+    }));
+  }
+
   function recoverSession(recoveredData) {
     setSession(recoveredData.session);
     setAccItems(recoveredData.accItems || []);
     setRpe(recoveredData.rpe || null);
     setNote(recoveredData.note || "");
     setEmphasisOvr(recoveredData.emphasisOvr || {});
+    setSlotSelections(recoveredData.slotSelections || {});
     setAccMode(recoveredData.accMode || "quick");
     // Calculate elapsed from wall clock
     const realElapsed = Math.floor((Date.now() - recoveredData.sessStart) / 1000);
@@ -2253,7 +2376,7 @@ export default function App() {
     const newOverrides = { ...emphasisOvr, [exerciseId]: next };
     setEmphasisOvr(newOverrides);
     if (session) {
-      const exercises = buildSession(session.workout, newOverrides);
+      const exercises = buildSession(session.workout, newOverrides, slotSelections);
       setSession(prev => ({
         ...prev,
         exercises: exercises.map((ex, i) => ({ ...ex, sets: prev.exercises[i]?.sets || ex.sets })),
@@ -2511,7 +2634,8 @@ export default function App() {
           accItems={accItems} setAccItems={setAccItems}
           rpe={rpe} setRpe={setRpe} note={note} setNote={setNote}
           suggested={suggested} lastDone={lastDone} customTemplates={customTemplates}
-          onToggleOverride={toggleOverride} onSave={() => {
+          onToggleOverride={toggleOverride} onSwapExercise={swapExercise}
+          onSave={() => {
             if (session) {
               const reqCats = getRequiredCategories(session.workout);
               const catStatus = checkCategoryCompletion(reqCats, accItems);
