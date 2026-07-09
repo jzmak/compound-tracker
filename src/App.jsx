@@ -80,6 +80,8 @@ const ACCESSORIES = [
   { id: "pallof_press",  name: "Pallof Press",      muscle: "Core",       categories: ["abs"] },
   { id: "hip_thrust",    name: "Hip Thrust",        muscle: "Glutes",     categories: ["hamstring_posterior"] },
   { id: "rdl",           name: "Romanian Deadlift",  muscle: "Hamstrings/Glutes", categories: ["hamstring_posterior"] },
+  { id: "pull_up",       name: "Pull-Up",           muscle: "Lats",       categories: ["vertical_pull"] },
+  { id: "db_fly",        name: "Dumbbell Fly",      muscle: "Chest",      categories: [] },
 ];
 
 const REQUIRED_CATEGORIES = {
@@ -295,13 +297,28 @@ function getDurationStats(history, workoutKey) {
 }
 
 function getSessionVolume(session) {
-  if (!session?.exercises) return 0;
-  return session.exercises.reduce((total, exercise) => {
-    const setVolume = exercise.sets
-      ?.filter(set => set.completed && parseFloat(set.reps) > 0)
-      .reduce((sum, set) => sum + exercise.weight * parseFloat(set.reps), 0) || 0;
-    return total + setVolume;
-  }, 0);
+  let total = 0;
+  // Compound exercise volume
+  if (session?.exercises) {
+    total += session.exercises.reduce((sum, exercise) => {
+      const setVolume = exercise.sets
+        ?.filter(set => set.completed && parseFloat(set.reps) > 0)
+        .reduce((s, set) => s + exercise.weight * parseFloat(set.reps), 0) || 0;
+      return sum + setVolume;
+    }, 0);
+  }
+  // Accessory volume (only counts entries with a logged weight)
+  if (session?.accessories) {
+    total += session.accessories.reduce((sum, acc) => {
+      if (!acc.done) return sum;
+      const w = parseFloat(acc.weight);
+      const reps = parseFloat(acc.reps);
+      const sets = parseFloat(acc.sets);
+      if (w > 0 && reps > 0 && sets > 0) return sum + w * reps * sets;
+      return sum;
+    }, 0);
+  }
+  return total;
 }
 
 function getWeeklyVolume(history) {
@@ -1160,7 +1177,7 @@ function ChartTooltip({ active, payload }) {
    VIEW: Home
    ═══════════════════════════════════════════ */
 
-function HomeView({ dup, history, bwHistory, nextWorkout, prs, streak, missed, lastGap, fatigue, wEmphasis, setWEmphasis, onStartSession, onLogBW, onLogMeasurements }) {
+function HomeView({ dup, history, bwHistory, nextWorkout, prs, streak, missed, lastGap, fatigue, wEmphasis, setWEmphasis, onStartSession, onStartAccessory, onLogBW, onLogMeasurements }) {
   const weeklyVol = useMemo(() => getWeeklyVolume(history), [history]);
 
   return (
@@ -1244,6 +1261,23 @@ function HomeView({ dup, history, bwHistory, nextWorkout, prs, streak, missed, l
           </div>
         );
       })}
+
+      {/* Accessory Session card */}
+      <div className="bg-gray-900 rounded-2xl p-4 border border-gray-800">
+        <div className="flex justify-between items-center">
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="font-bold text-sm">Accessory Session</div>
+            <span className="text-xs bg-gray-700 text-gray-300 px-2 py-0.5 rounded-full font-semibold">freeform</span>
+          </div>
+          <button onClick={onStartAccessory}
+            className="font-bold py-2 px-4 rounded-xl text-sm bg-gray-700 text-white">
+            Start
+          </button>
+        </div>
+        <div className="text-xs text-gray-500 mt-2">
+          Pull-ups, arms, core, delts, flies and more. For home-gym or extra days. Counts toward your history and streak.
+        </div>
+      </div>
 
       <div className="flex gap-2">
         <button onClick={onLogBW} className="flex-1 font-semibold py-3 rounded-2xl text-sm bg-gray-800 border border-gray-700 text-gray-300">
@@ -1336,10 +1370,16 @@ function LogView({
         </div>
       </div>
 
-      {/* Warmup hint */}
-      <div className="bg-gray-800 rounded-xl px-3 py-2 text-xs text-gray-500">
-        Warmup suggestion: bar ×10 → 50% ×8 → 75% ×5 → working weight
-      </div>
+      {/* Warmup hint (compound days) or accessory intro (accessory day) */}
+      {session.workout === "ACC" ? (
+        <div className="bg-gray-800 rounded-xl px-3 py-2 text-xs text-gray-500">
+          Freeform accessory session. Tap "Add Accessory" below to log whatever you want. No required categories.
+        </div>
+      ) : (
+        <div className="bg-gray-800 rounded-xl px-3 py-2 text-xs text-gray-500">
+          Warmup suggestion: bar ×10 → 50% ×8 → 75% ×5 → working weight
+        </div>
+      )}
 
       {/* Exercises */}
       {session.exercises.map((exercise, exIdx) => {
@@ -1506,8 +1546,8 @@ function LogView({
         );
       })}
 
-      {/* Required Accessory Categories */}
-      {session?.workout && (() => {
+      {/* Required Accessory Categories (not shown for freeform accessory sessions) */}
+      {session?.workout && session.workout !== "ACC" && (() => {
         const reqCats = getRequiredCategories(session.workout);
         const catStatus = checkCategoryCompletion(reqCats, accItems);
         const allDone = catStatus.every(c => c.completed);
@@ -1655,7 +1695,7 @@ function HistoryView({ history, onEdit }) {
                 {session.rpe && <span className="text-xs bg-gray-800 px-2 py-0.5 rounded-full">RPE {session.rpe}</span>}
                 {session.duration > 0 && <span className="text-xs bg-gray-800 px-2 py-0.5 rounded-full">{session.duration}m</span>}
                 {(() => { const vol = getSessionVolume(session); return vol > 0 ? <span className="text-xs bg-gray-800 px-2 py-0.5 rounded-full text-green-400">{Math.round(vol).toLocaleString()} lb</span> : null; })()}
-                {isEditable && (
+                {isEditable && session.workout !== "ACC" && (
                   <button onClick={() => onEdit(realIdx)}
                     className="text-xs bg-gray-800 border border-gray-700 px-2 py-0.5 rounded-full text-blue-300 hover:bg-gray-700">
                     Edit
@@ -1749,22 +1789,23 @@ function ProgressView({ history, dup, prs, bwHistory, measurements, selEx, setSe
                   const entry = calendarData[dateKey];
                   const isToday = day === now.getDate();
                   const bgColor = entry
-                    ? entry.workout === "A" ? "bg-navy" : "bg-orange-900"
+                    ? entry.workout === "A" ? "bg-navy" : entry.workout === "B" ? "bg-orange-900" : "bg-purple-900"
                     : "bg-gray-800";
                   const textColor = entry
-                    ? entry.workout === "A" ? "text-navy-light" : "text-orange-300"
+                    ? entry.workout === "A" ? "text-navy-light" : entry.workout === "B" ? "text-orange-300" : "text-purple-300"
                     : "text-gray-500";
                   return (
                     <div key={i} className={`rounded-lg p-1 text-center text-xs ${bgColor} ${textColor} ${isToday ? "ring-1 ring-white" : ""}`}>
                       {day}
-                      {entry && <div className="text-[8px] leading-none mt-0.5">{entry.workout}</div>}
+                      {entry && <div className="text-[8px] leading-none mt-0.5">{entry.workout === "ACC" ? "AC" : entry.workout}</div>}
                     </div>
                   );
                 })}
               </div>
-              <div className="flex gap-4 mt-3 text-xs text-gray-500">
+              <div className="flex gap-4 mt-3 text-xs text-gray-500 flex-wrap">
                 <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded bg-navy" /> Workout A</div>
                 <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded bg-orange-900" /> Workout B</div>
+                <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded bg-purple-900" /> Accessory</div>
               </div>
             </>
           );
@@ -2373,6 +2414,25 @@ export default function App() {
     setView("log");
   }
 
+  function startAccessorySession() {
+    setSlotSelections({});
+    setEmphasisOvr({});
+    setAccItems([]); // start empty; user adds what they want
+    setRpe(null);
+    setNote("");
+    setSessStart(Date.now());
+    setElapsed(0);
+    setResets([]);
+    setSession({
+      workout: "ACC",
+      label: "Accessory Session",
+      exercises: [], // no compound exercises, never touches DUP
+      date: new Date().toISOString(),
+      emphasis: null,
+    });
+    setView("log");
+  }
+
   function swapExercise(slotIdx, newExerciseId) {
     if (!session) return;
     const newSelections = { ...slotSelections, [slotIdx]: newExerciseId };
@@ -2426,6 +2486,17 @@ export default function App() {
     try {
       clearInterval(timerRef.current);
       const duration = Math.floor((Date.now() - sessStart) / 60000);
+
+      // Accessory session: no compound exercises, no DUP progression, no A/B rotation change
+      if (session.workout === "ACC") {
+        const fullSession = { ...session, rpe, note, duration, accessories: accItems, exercises: [] };
+        saveHistory([...history, fullSession]);
+        clearActiveSession();
+        setSaved(true);
+        setTimeout(() => { setSaved(false); setSession(null); setView("home"); }, 1400);
+        return;
+      }
+
       const fullSession = { ...session, rpe, note, duration, accessories: accItems };
       const newHistory = [...history, fullSession];
       const newDup = applyDUPProgression(dup, session.exercises);
@@ -2666,7 +2737,7 @@ export default function App() {
           dup={dup} history={history} bwHistory={bwHistory} nextWorkout={nextWorkout}
           prs={prs} streak={streak} missed={missed} lastGap={lastGap} fatigue={fatigue}
           wEmphasis={wEmphasis} setWEmphasis={setWEmphasis}
-          onStartSession={startSession} onLogBW={() => setShowBW(true)}
+          onStartSession={startSession} onStartAccessory={startAccessorySession} onLogBW={() => setShowBW(true)}
           onLogMeasurements={() => setShowMeasurements(true)}
         />
       )}
@@ -2681,6 +2752,10 @@ export default function App() {
           onToggleOverride={toggleOverride} onSwapExercise={swapExercise}
           onSave={() => {
             if (session) {
+              if (session.workout === "ACC") {
+                setConfirmSave(true); // accessory sessions have no required categories
+                return;
+              }
               const reqCats = getRequiredCategories(session.workout);
               const catStatus = checkCategoryCompletion(reqCats, accItems);
               if (catStatus.some(c => !c.completed)) {
