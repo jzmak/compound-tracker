@@ -145,6 +145,46 @@ function roundToIncrement(weight, inc) {
   return Math.round(weight / inc) * inc;
 }
 
+// Finding A: derive a dormant track's load-in weight from the active track.
+// Returns { weight, derived, note } or null if not stale / can't derive.
+// Stale = the target track hasn't been trained in 6+ same-lift sessions or 56+ days.
+function deriveStaleWeight(exerciseId, targetTrack, dupState, history) {
+  const config = EXERCISES[exerciseId];
+  if (!config) return null;
+
+  // Find the most recent completed session on EACH track for this lift.
+  let lastTargetDate = null, lastActive = null;
+  let targetSessionsSince = 0;
+  for (let i = history.length - 1; i >= 0; i--) {
+    const ex = (history[i].exercises || []).find(e => e.id === exerciseId);
+    if (!ex) continue;
+    const track = ex.sessionType === "strength" ? "strength" : "hypertrophy";
+    const allDone = (ex.sets || []).length > 0 && ex.sets.every(st => st.completed);
+    if (track === targetTrack) {
+      if (!lastTargetDate) lastTargetDate = history[i].date;
+    } else {
+      targetSessionsSince++; // active-track sessions accumulating since target last ran
+      if (allDone && !lastActive) lastActive = { weight: ex.weight, reps: parseFloat(ex.sets[ex.sets.length - 1].reps) || config.repMin };
+    }
+  }
+
+  const daysSince = lastTargetDate ? daysSinceDate(lastTargetDate) : 9999;
+  const isStale = (targetSessionsSince >= 6) || (daysSince >= 56) || !lastTargetDate;
+  if (!isStale || !lastActive) return null;
+
+  // Epley e1RM from the active track's last completed session, then solve for the
+  // dormant track's rep target, apply a 0.92 haircut for untrained-range penalty.
+  const e1rm = lastActive.weight * (1 + lastActive.reps / 30);
+  const rTarget = targetTrack === "strength" ? config.sRepMax : config.repMax;
+  const raw = (e1rm / (1 + rTarget / 30)) * 0.92;
+  const derivedW = roundToIncrement(raw, config.inc);
+
+  const stored = targetTrack === "strength" ? dupState.sW : dupState.hW;
+  // Only override if derivation differs meaningfully from stored (avoid churn)
+  if (Math.abs(derivedW - stored) < config.inc) return null;
+  return { weight: derivedW, derived: true, note: `derived from ${targetTrack === "strength" ? "hyp" : "str"} track e1RM` };
+}
+
 function daysSinceDate(dateStr) {
   return Math.floor((Date.now() - new Date(dateStr).getTime()) / MS_PER_DAY);
 }
@@ -310,7 +350,8 @@ function getSuggestedAccessories(history) {
 function getDurationStats(history, workoutKey) {
   const durations = history
     .filter(session => session.workout === workoutKey && session.duration > 0)
-    .map(session => session.duration);
+    .map(session => cleanDuration(session.duration))
+    .filter(d => d != null);
   if (!durations.length) return null;
   return {
     last: durations[durations.length - 1],
@@ -375,6 +416,33 @@ const MUSCLE_TARGETS = {
   Lats: [8, 12], Shoulders: [8, 14], RearDelts: [4, 8], Biceps: [4, 8], Triceps: [4, 8], Abs: [4, 8], Traps: [4, 8], Neck: [2, 6],
 };
 
+// Finding E: analytics-layer cleaning. Raw records are preserved in storage;
+// these filters run only when computing charts/trends/summaries.
+function cleanBwHistory(bw) {
+  return (bw || []).filter(e => e.weight >= 50 && e.weight <= 500);
+}
+function cleanDuration(mins) {
+  return mins > 180 ? null : mins; // exclude garbage durations from stats
+}
+function cleanMeasurements(m) {
+  // Collapse exact-duplicate rows (all four values identical to an earlier kept row) to first occurrence.
+  const out = [];
+  (m || []).forEach(e => {
+    const dup = out.some(k => k.chest === e.chest && k.waist === e.waist && k.arms === e.arms && k.legs === e.legs);
+    if (!dup) out.push(e);
+  });
+  return out;
+}
+// Ghost sessions: compound session with zero completed sets. Excluded from analytics.
+function isGhostSession(session) {
+  if (session.workout === "ACC") return false; // accessory sessions legitimately have no compound sets
+  const anyCompleted = (session.exercises || []).some(ex => (ex.sets || []).some(st => st.completed));
+  return !anyCompleted;
+}
+function cleanSessions(history) {
+  return (history || []).filter(s => !isGhostSession(s));
+}
+
 function getWeeklyMuscleSets(history) {
   const now = new Date();
   const weekAgo = new Date(now.getTime() - 7 * MS_PER_DAY);
@@ -402,20 +470,26 @@ function getRegressions(history, dup) {
   const now = new Date();
   const eightWeeksAgo = new Date(now.getTime() - 56 * MS_PER_DAY);
   const maxByTrack = {};
+  const countByTrack = {};
   history.forEach(session => {
     if (new Date(session.date) < eightWeeksAgo) return;
     (session.exercises || []).forEach(ex => {
       const key = ex.id + "_" + (ex.sessionType === "strength" ? "s" : "h");
-      const allDone = (ex.sets || []).every(s => s.completed);
-      if (allDone) maxByTrack[key] = Math.max(maxByTrack[key] || 0, ex.weight || 0);
+      const allDone = (ex.sets || []).length > 0 && (ex.sets || []).every(s => s.completed);
+      if (allDone) {
+        maxByTrack[key] = Math.max(maxByTrack[key] || 0, ex.weight || 0);
+        countByTrack[key] = (countByTrack[key] || 0) + 1;
+      }
     });
   });
   const flags = [];
   Object.keys(dup || {}).forEach(id => {
     const config = EXERCISES[id]; if (!config) return;
-    const hMax = maxByTrack[id + "_h"]; const sMax = maxByTrack[id + "_s"];
-    if (hMax && dup[id].hW < hMax) flags.push({ id, name: config.name, track: "hyp", now: dup[id].hW, peak: hMax });
-    if (sMax && dup[id].sW < sMax) flags.push({ id, name: config.name, track: "str", now: dup[id].sW, peak: sMax });
+    const hKey = id + "_h", sKey = id + "_s";
+    const hMax = maxByTrack[hKey]; const sMax = maxByTrack[sKey];
+    // Finding A: suppress the flag for tracks with <2 recent completed sessions (freshly derived)
+    if (hMax && (countByTrack[hKey] || 0) >= 2 && dup[id].hW < hMax) flags.push({ id, name: config.name, track: "hyp", now: dup[id].hW, peak: hMax });
+    if (sMax && (countByTrack[sKey] || 0) >= 2 && dup[id].sW < sMax) flags.push({ id, name: config.name, track: "str", now: dup[id].sW, peak: sMax });
   });
   return flags;
 }
@@ -1615,6 +1689,12 @@ function LogView({
               </div>
             )}
 
+            {exercise.derivedWeight && !exercise.isDeload && (
+              <div className="bg-blue-900 bg-opacity-30 border border-blue-800 rounded-lg px-3 py-1.5 mb-2 text-xs text-blue-300">
+                Estimated start · this track was dormant, weight {exercise.derivationNote}. Adjust if it feels off.
+              </div>
+            )}
+
             {/* Inline plate breakdown */}
             {(() => {
               if (config.bar === "dumbbell") return (
@@ -1745,7 +1825,14 @@ function LogView({
         )}
         {accItems.map((acc, idx) => (
           <div key={acc.id} className={`flex items-center gap-2 py-2 border-t border-gray-800 ${acc.done ? "opacity-60" : ""}`}>
-            <button onClick={() => updateAccessory(idx, "done", !acc.done)}
+            <button onClick={() => {
+              // Finding C: can't mark done without a weight or an explicit unloaded flag
+              if (!acc.done && !acc.unloaded && !(acc.weight && parseFloat(acc.weight) > 0)) {
+                alert(`Enter a weight for ${acc.name}, or tap "BW" if it's bodyweight/unloaded.`);
+                return;
+              }
+              updateAccessory(idx, "done", !acc.done);
+            }}
               className={`w-8 h-8 rounded-full flex items-center justify-center text-xs flex-shrink-0 transition-colors ${
                 acc.done ? "bg-green-600" : "bg-gray-700"
               }`}>
@@ -1766,11 +1853,19 @@ function LogView({
               onChange={e => updateAccessory(idx, "reps", e.target.value)}
               className="w-10 bg-gray-800 border border-gray-700 rounded-lg px-1 py-1 text-center text-xs text-white outline-none" />
             <span className="text-xs text-gray-500">@</span>
-            <input type="number" inputMode="decimal"
-              placeholder={accLastValues[acc.id]?.weight ? String(accLastValues[acc.id].weight) : "lb"}
-              value={acc.weight}
-              onChange={e => updateAccessory(idx, "weight", e.target.value)}
-              className="w-14 bg-gray-800 border border-gray-700 rounded-lg px-1 py-1 text-center text-xs text-white outline-none" />
+            {acc.unloaded ? (
+              <button onClick={() => updateAccessory(idx, "unloaded", false)}
+                className="w-14 text-center text-xs text-blue-300 bg-blue-900 bg-opacity-30 border border-blue-800 rounded-lg py-1">BW</button>
+            ) : (
+              <input type="number" inputMode="decimal"
+                placeholder={accLastValues[acc.id]?.weight ? String(accLastValues[acc.id].weight) : "lb"}
+                value={acc.weight}
+                onChange={e => updateAccessory(idx, "weight", e.target.value)}
+                className="w-14 bg-gray-800 border border-gray-700 rounded-lg px-1 py-1 text-center text-xs text-white outline-none" />
+            )}
+            <button onClick={() => updateAccessory(idx, "unloaded", !acc.unloaded)}
+              title="Bodyweight / unloaded"
+              className={`text-xs flex-shrink-0 w-7 h-7 flex items-center justify-center rounded-lg ${acc.unloaded ? "text-blue-300" : "text-gray-600"}`}>BW</button>
             <button onClick={() => removeAccessory(idx)}
               className="text-gray-500 hover:text-red-400 text-lg leading-none flex-shrink-0 w-8 h-8 flex items-center justify-center">✕</button>
           </div>
@@ -1897,10 +1992,14 @@ function HistoryView({ history, onEdit }) {
    ═══════════════════════════════════════════ */
 
 function ProgressView({ history, dup, prs, bwHistory, measurements, selEx, setSelEx, onExport, onShowImport }) {
-  const volumeData = useMemo(() => getVolumeHistory(history), [history]);
-  const calendarData = useMemo(() => getCalendarData(history), [history]);
-  const muscleSets = useMemo(() => getWeeklyMuscleSets(history), [history]);
-  const regressions = useMemo(() => getRegressions(history, dup), [history, dup]);
+  // Finding E: run analytics over cleaned data (ghosts excluded, outliers filtered)
+  const cleanHist = useMemo(() => cleanSessions(history), [history]);
+  const cleanBw = useMemo(() => cleanBwHistory(bwHistory), [bwHistory]);
+  const cleanMeas = useMemo(() => cleanMeasurements(measurements), [measurements]);
+  const volumeData = useMemo(() => getVolumeHistory(cleanHist), [cleanHist]);
+  const calendarData = useMemo(() => getCalendarData(cleanHist), [cleanHist]);
+  const muscleSets = useMemo(() => getWeeklyMuscleSets(cleanHist), [cleanHist]);
+  const regressions = useMemo(() => getRegressions(cleanHist, dup), [cleanHist, dup]);
   return (
     <div className="p-4 space-y-5">
       <h2 className="font-bold text-lg">Progress</h2>
@@ -2028,7 +2127,7 @@ function ProgressView({ history, dup, prs, bwHistory, measurements, selEx, setSe
       <div className="bg-gray-900 rounded-2xl p-4 border border-gray-800">
         <div className="font-semibold mb-3">Workout Duration</div>
         {["A", "B"].map(workoutKey => {
-          const stats = getDurationStats(history, workoutKey);
+          const stats = getDurationStats(cleanHist, workoutKey);
           return (
             <div key={workoutKey} className="mb-3">
               <div className="text-xs text-gray-400 mb-1">{WORKOUTS[workoutKey].label}</div>
@@ -2253,7 +2352,7 @@ function ProgressView({ history, dup, prs, bwHistory, measurements, selEx, setSe
           <div className="font-semibold mb-1">Bodyweight Trend</div>
           <ResponsiveContainer width="100%" height={90}>
             <LineChart
-              data={bwHistory.map(entry => ({
+              data={cleanBw.map(entry => ({
                 date: new Date(entry.date).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
                 weight: entry.weight,
               }))}
@@ -2311,7 +2410,7 @@ function ProgressView({ history, dup, prs, bwHistory, measurements, selEx, setSe
           {measurements.length >= 2 && (
             <ResponsiveContainer width="100%" height={120}>
               <LineChart
-                data={measurements.map(entry => ({
+                data={cleanMeas.map(entry => ({
                   date: new Date(entry.date).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
                   ...MEASUREMENT_FIELDS.reduce((acc, f) => ({ ...acc, [f.label]: entry[f.id] || null }), {}),
                 }))}
@@ -2477,6 +2576,7 @@ export default function App() {
   const [showMeasurements, setShowMeasurements] = useState(false);
   const [confirmSave, setConfirmSave] = useState(false);
   const [categoryWarn, setCategoryWarn] = useState(false);
+  const [uncheckedWarn, setUncheckedWarn] = useState(null);
   const timerRef = useRef();
 
   // Sunday BW prompt
@@ -2551,8 +2651,11 @@ export default function App() {
       // A manual override (from the emphasis toggle) still wins if present.
       const effectiveEmphasis = overrides[id] || dupState.nextType || workoutEmphasis;
       const isHyp = effectiveEmphasis === "hypertrophy";
-      const workingWeight = isHyp ? dupState.hW : dupState.sW;
-      const weight = isDeload ? roundToIncrement(workingWeight * 0.6, config.inc || 5) : workingWeight;
+      const storedWeight = isHyp ? dupState.hW : dupState.sW;
+      // Finding A: if this track is stale, derive a sensible load-in from the active track.
+      const derivation = isDeload ? null : deriveStaleWeight(id, effectiveEmphasis, dupState, history);
+      const workingWeight = derivation ? derivation.weight : storedWeight;
+      const weight = isDeload ? roundToIncrement(storedWeight * 0.6, config.inc || 5) : workingWeight;
       const targetReps = isHyp ? config.repMax : config.sRepMax;
       const repMin = isHyp ? config.repMin : config.sRepMin;
 
@@ -2566,6 +2669,7 @@ export default function App() {
       return {
         id, name: config.name, note: config.note, bar: config.bar,
         weight, workingWeight, isDeload: !!isDeload,
+        derivedWeight: !!derivation, derivationNote: derivation?.note || null,
         targetReps, repMin, sessionType: effectiveEmphasis,
         rest: isHyp ? 90 : 180,
         lastWeight, lastSets,
@@ -2694,6 +2798,18 @@ export default function App() {
         return;
       }
 
+      // Finding D: guard against ghost sessions (compound session, nothing completed, very short).
+      const anyCompleted = (session.exercises || []).some(ex => (ex.sets || []).some(st => st.completed));
+      if (!anyCompleted && duration < 20) {
+        const discard = confirm("This session has no completed sets and is under 20 minutes. Discard it instead of saving?");
+        if (discard) {
+          clearActiveSession();
+          setSession(null);
+          setView("home");
+          return;
+        }
+      }
+
       // Deload session: save to history for the record, but do NOT run progression
       // or overwrite working weights. Working weight is preserved for next week.
       if (session.isDeload) {
@@ -2811,6 +2927,7 @@ export default function App() {
 
   function handleExport() {
     const payload = {
+      schemaVersion: 2,
       exportDate: new Date().toISOString(),
       sessions: history,
       dupState: dup,
@@ -2872,6 +2989,52 @@ export default function App() {
           onConfirm={() => { setSession(null); clearActiveSession(); setView(navGuard); setNavGuard(null); }}
           onCancel={() => setNavGuard(null)}
         />
+      )}
+
+      {uncheckedWarn && (
+        <div className="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50 p-6">
+          <div className="bg-gray-900 rounded-3xl p-6 w-full max-w-sm border border-gray-700">
+            <div className="font-bold text-white mb-2">Unchecked sets</div>
+            <div className="text-sm text-gray-400 mb-4">
+              {uncheckedWarn.length} set{uncheckedWarn.length > 1 ? "s have" : " has"} reps entered but {uncheckedWarn.length > 1 ? "aren't" : "isn't"} marked done. These won't count toward progression. What do you want to do?
+            </div>
+            <div className="space-y-2">
+              <button onClick={() => {
+                // Mark all unchecked-with-reps sets complete, then continue the save flow.
+                setSession(prev => {
+                  const exercises = prev.exercises.map(ex => ({
+                    ...ex,
+                    sets: ex.sets.map(st => (!st.completed && st.reps && parseFloat(st.reps) > 0) ? { ...st, completed: true } : st),
+                  }));
+                  return { ...prev, exercises };
+                });
+                setUncheckedWarn(null);
+                setTimeout(() => {
+                  if (session.workout === "ACC") { setConfirmSave(true); return; }
+                  const reqCats = getRequiredCategories(session.workout);
+                  const catStatus = checkCategoryCompletion(reqCats, accItems);
+                  if (catStatus.some(c => !c.completed)) setCategoryWarn(true);
+                  else setConfirmSave(true);
+                }, 50);
+              }} className="w-full bg-green-700 text-white font-semibold py-3 rounded-xl text-sm">
+                Mark them done & continue
+              </button>
+              <button onClick={() => {
+                setUncheckedWarn(null);
+                if (session.workout === "ACC") { setConfirmSave(true); return; }
+                const reqCats = getRequiredCategories(session.workout);
+                const catStatus = checkCategoryCompletion(reqCats, accItems);
+                if (catStatus.some(c => !c.completed)) setCategoryWarn(true);
+                else setConfirmSave(true);
+              }} className="w-full bg-gray-700 text-gray-200 font-semibold py-3 rounded-xl text-sm">
+                Leave them unchecked (discard those reps)
+              </button>
+              <button onClick={() => setUncheckedWarn(null)} className="w-full bg-gray-800 text-gray-400 font-semibold py-3 rounded-xl text-sm">
+                Go back
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {categoryWarn && (
@@ -2981,6 +3144,19 @@ export default function App() {
           onToggleOverride={toggleOverride} onSwapExercise={swapExercise}
           onSave={() => {
             if (session) {
+              // Finding B: catch sets that have reps typed but were never checked off.
+              const uncheckedWithReps = [];
+              (session.exercises || []).forEach(ex => {
+                ex.sets.forEach((st, i) => {
+                  if (!st.completed && st.reps && parseFloat(st.reps) > 0) {
+                    uncheckedWithReps.push({ exId: ex.id, name: ex.name, setIdx: i });
+                  }
+                });
+              });
+              if (uncheckedWithReps.length > 0) {
+                setUncheckedWarn(uncheckedWithReps);
+                return;
+              }
               if (session.workout === "ACC") {
                 setConfirmSave(true); // accessory sessions have no required categories
                 return;
