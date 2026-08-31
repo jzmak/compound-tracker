@@ -65,23 +65,28 @@ const WORKOUTS = {
 const ALL_COMPOUND_IDS = Object.keys(EXERCISES);
 
 const ACCESSORIES = [
+  // Category-linked (referenced by A/B required categories — kept intact)
   { id: "lat_pulldown",  name: "Lat Pulldown",      muscle: "Back",       categories: ["vertical_pull"] },
-  { id: "shrug",         name: "Shrug",             muscle: "Traps",      categories: [] },
   { id: "cable_row",     name: "Cable/Machine Row", muscle: "Back",       categories: ["upper_back_shoulder"] },
   { id: "face_pull",     name: "Face Pull",         muscle: "Shoulders",  categories: ["delt_upper_back", "upper_back_shoulder"] },
   { id: "bicep_curl",    name: "Bicep Curl",        muscle: "Biceps",     categories: ["arms"] },
   { id: "lateral_raise", name: "Lateral Raise",     muscle: "Shoulders",  categories: ["delt_upper_back", "upper_back_shoulder"] },
   { id: "rear_delt_fly", name: "Rear Delt Fly",     muscle: "Shoulders",  categories: ["delt_upper_back", "upper_back_shoulder"] },
   { id: "tricep_push",   name: "Tricep Pushdown",   muscle: "Triceps",    categories: ["arms"] },
-  { id: "leg_curl",      name: "Leg Curl",          muscle: "Hamstrings", categories: ["hamstring_posterior"] },
-  { id: "dec_crunch",    name: "Decline Crunch",    muscle: "Core",       categories: ["abs"] },
-  { id: "dead_bug",      name: "Dead Bug",          muscle: "Core",       categories: ["abs"] },
-  { id: "ab_wheel",      name: "Ab Wheel Rollout",  muscle: "Core",       categories: ["abs"] },
-  { id: "pallof_press",  name: "Pallof Press",      muscle: "Core",       categories: ["abs"] },
+  { id: "leg_curl",      name: "Hamstring Curl",    muscle: "Hamstrings", categories: ["hamstring_posterior"] },
   { id: "hip_thrust",    name: "Hip Thrust",        muscle: "Glutes",     categories: ["hamstring_posterior"] },
-  { id: "rdl",           name: "Romanian Deadlift",  muscle: "Hamstrings/Glutes", categories: ["hamstring_posterior"] },
+  { id: "rdl",           name: "Romanian Deadlift", muscle: "Hamstrings/Glutes", categories: ["hamstring_posterior"] },
   { id: "pull_up",       name: "Pull-Up",           muscle: "Lats",       categories: ["vertical_pull"] },
-  { id: "db_fly",        name: "Dumbbell Fly",      muscle: "Chest",      categories: [] },
+  // User's curated freeform movements
+  { id: "db_row_acc",    name: "Dumbbell Row",      muscle: "Back",       categories: [] },
+  { id: "goblet_squat",  name: "Goblet Squat",      muscle: "Quads",      categories: [] },
+  { id: "hanging_leg_raise", name: "Hanging Leg Raise", muscle: "Abs",    categories: [] },
+  { id: "sit_ups",       name: "Sit Ups",           muscle: "Abs",        categories: [] },
+  { id: "push_ups",      name: "Push Ups",          muscle: "Chest",      categories: [] },
+  { id: "seated_leg_ext", name: "Seated Leg Extension", muscle: "Quads",  categories: [] },
+  { id: "neck",          name: "Neck Conditioning", muscle: "Neck",       categories: [] },
+  { id: "bulgarian_split", name: "Bulgarian Split Squat", muscle: "Quads", categories: [] },
+  { id: "db_rdl_acc",    name: "Dumbbell RDL",      muscle: "Hamstrings", categories: [] },
 ];
 
 const REQUIRED_CATEGORIES = {
@@ -279,6 +284,17 @@ function getAccessoryLastDone(history) {
   return lastDone;
 }
 
+// P1-3: last logged sets/reps/weight per accessory, for prefilling the next session
+function getAccessoryLastValues(history) {
+  const last = {};
+  history.forEach(session => {
+    session.accessories?.forEach(acc => {
+      last[acc.id] = { sets: acc.sets, reps: acc.reps, weight: acc.weight };
+    });
+  });
+  return last;
+}
+
 function getSuggestedAccessories(history) {
   const lastDone = getAccessoryLastDone(history);
   return [...ACCESSORIES]
@@ -328,6 +344,80 @@ function getSessionVolume(session) {
     }, 0);
   }
   return total;
+}
+
+// P3-b: muscle contribution maps (primary 1.0, secondary fractional). Practical, not exact.
+const MUSCLE_MAP = {
+  belt_squat: { Quads: 1.0, Glutes: 0.5 }, lever_squat: { Quads: 1.0, Glutes: 0.5 },
+  zercher_squat: { Quads: 1.0, Glutes: 0.5, Back: 0.25 },
+  standing_press: { Shoulders: 1.0, Triceps: 0.5 }, seated_press: { Shoulders: 1.0, Triceps: 0.5 },
+  tbar_row: { Back: 1.0, Lats: 0.5, Biceps: 0.25 }, db_row: { Back: 1.0, Lats: 0.5, Biceps: 0.25 },
+  hex_deadlift: { Glutes: 1.0, Hamstrings: 0.75, Quads: 0.5, Back: 0.25 },
+  incline_smith: { Chest: 1.0, Shoulders: 0.5, Triceps: 0.5 }, incline_db: { Chest: 1.0, Shoulders: 0.5, Triceps: 0.5 },
+  leg_press: { Quads: 1.0, Glutes: 0.5 }, hack_squat: { Quads: 1.0, Glutes: 0.5 },
+  standing_ht: { Glutes: 1.0, Hamstrings: 0.5 }, ht_machine: { Glutes: 1.0, Hamstrings: 0.5 },
+  rdl_barbell: { Hamstrings: 1.0, Glutes: 0.75 }, single_leg_rdl: { Hamstrings: 1.0, Glutes: 0.75 },
+  lat_pulldown: { Lats: 1.0, Biceps: 0.5 }, pull_up: { Lats: 1.0, Biceps: 0.5 },
+  cable_row: { Back: 1.0, Lats: 0.5, Biceps: 0.25 }, face_pull: { RearDelts: 1.0, Shoulders: 0.5 },
+  rear_delt_fly: { RearDelts: 1.0 }, lateral_raise: { Shoulders: 1.0 },
+  bicep_curl: { Biceps: 1.0 }, tricep_push: { Triceps: 1.0 },
+  leg_curl: { Hamstrings: 1.0 }, hip_thrust: { Glutes: 1.0, Hamstrings: 0.5 }, rdl: { Hamstrings: 1.0, Glutes: 0.75 },
+  shrug: { Traps: 1.0 }, db_fly: { Chest: 1.0 },
+  dec_crunch: { Abs: 1.0 }, dead_bug: { Abs: 1.0 }, ab_wheel: { Abs: 1.0 }, pallof_press: { Abs: 1.0 },
+  db_row_acc: { Back: 1.0, Lats: 0.5, Biceps: 0.25 }, goblet_squat: { Quads: 1.0, Glutes: 0.5 },
+  hanging_leg_raise: { Abs: 1.0 }, sit_ups: { Abs: 1.0 }, push_ups: { Chest: 1.0, Triceps: 0.5, Shoulders: 0.25 },
+  seated_leg_ext: { Quads: 1.0 }, neck: { Neck: 1.0 }, bulgarian_split: { Quads: 1.0, Glutes: 0.5 },
+  db_rdl_acc: { Hamstrings: 1.0, Glutes: 0.75 },
+};
+
+const MUSCLE_TARGETS = {
+  Quads: [8, 12], Hamstrings: [8, 12], Glutes: [8, 12], Chest: [8, 12], Back: [8, 14],
+  Lats: [8, 12], Shoulders: [8, 14], RearDelts: [4, 8], Biceps: [4, 8], Triceps: [4, 8], Abs: [4, 8], Traps: [4, 8], Neck: [2, 6],
+};
+
+function getWeeklyMuscleSets(history) {
+  const now = new Date();
+  const weekAgo = new Date(now.getTime() - 7 * MS_PER_DAY);
+  const sets = {};
+  Object.keys(MUSCLE_TARGETS).forEach(m => { sets[m] = 0; });
+  history.forEach(session => {
+    if (new Date(session.date) < weekAgo) return;
+    (session.exercises || []).forEach(ex => {
+      const map = MUSCLE_MAP[ex.id]; if (!map) return;
+      const done = (ex.sets || []).filter(s => s.completed).length;
+      Object.entries(map).forEach(([m, f]) => { if (sets[m] != null) sets[m] += done * f; });
+    });
+    (session.accessories || []).forEach(acc => {
+      if (!acc.done) return;
+      const map = MUSCLE_MAP[acc.id]; if (!map) return;
+      const n = parseFloat(acc.sets) || 0;
+      Object.entries(map).forEach(([m, f]) => { if (sets[m] != null) sets[m] += n * f; });
+    });
+  });
+  return sets;
+}
+
+// P3-d: lifts whose current working weight is below their trailing 8-week max on the same track
+function getRegressions(history, dup) {
+  const now = new Date();
+  const eightWeeksAgo = new Date(now.getTime() - 56 * MS_PER_DAY);
+  const maxByTrack = {};
+  history.forEach(session => {
+    if (new Date(session.date) < eightWeeksAgo) return;
+    (session.exercises || []).forEach(ex => {
+      const key = ex.id + "_" + (ex.sessionType === "strength" ? "s" : "h");
+      const allDone = (ex.sets || []).every(s => s.completed);
+      if (allDone) maxByTrack[key] = Math.max(maxByTrack[key] || 0, ex.weight || 0);
+    });
+  });
+  const flags = [];
+  Object.keys(dup || {}).forEach(id => {
+    const config = EXERCISES[id]; if (!config) return;
+    const hMax = maxByTrack[id + "_h"]; const sMax = maxByTrack[id + "_s"];
+    if (hMax && dup[id].hW < hMax) flags.push({ id, name: config.name, track: "hyp", now: dup[id].hW, peak: hMax });
+    if (sMax && dup[id].sW < sMax) flags.push({ id, name: config.name, track: "str", now: dup[id].sW, peak: sMax });
+  });
+  return flags;
 }
 
 function getWeeklyVolume(history) {
@@ -672,8 +762,21 @@ function useWorkoutStorage() {
   }, []);
 
   const saveBW = useCallback((weight) => {
-    const entry = { date: new Date().toISOString(), weight };
-    const updated = [...bwHistory, entry];
+    const w = parseFloat(weight);
+    // P2-1: range validation
+    if (!(w >= 50 && w <= 500)) {
+      alert(`Bodyweight ${weight} looks out of range (expected 50-500 lb). Not saved.`);
+      return;
+    }
+    const now = Date.now();
+    let updated = [...bwHistory];
+    // P2-1: if the last entry is within 5 minutes, replace it (dedupe rapid corrections)
+    const last = updated[updated.length - 1];
+    if (last && (now - new Date(last.date).getTime()) < 5 * 60 * 1000) {
+      updated[updated.length - 1] = { date: new Date().toISOString(), weight: w };
+    } else {
+      updated.push({ date: new Date().toISOString(), weight: w });
+    }
     setBwHistory(updated);
     storageSet(STORAGE_KEYS.bw, updated);
   }, [bwHistory]);
@@ -710,7 +813,19 @@ function useWorkoutStorage() {
   }, []);
 
   const saveMeasurements = useCallback((entry) => {
-    const updated = [...measurements, entry];
+    const now = Date.now();
+    let updated = [...measurements];
+    const last = updated[updated.length - 1];
+    // P2-3: warn if every value is identical to the previous entry (likely unchanged prefill)
+    if (last && ["chest", "waist", "arms", "legs"].every(k => last[k] === entry[k])) {
+      if (!confirm("These measurements are identical to your last entry. Save anyway?")) return;
+    }
+    // P2-3: dedupe rapid same-entry saves within 5 minutes
+    if (last && (now - new Date(last.date).getTime()) < 5 * 60 * 1000) {
+      updated[updated.length - 1] = { ...entry, date: new Date().toISOString() };
+    } else {
+      updated.push({ ...entry, date: new Date().toISOString() });
+    }
     setMeasurements(updated);
     storageSet(STORAGE_KEYS.measurements, updated);
   }, [measurements]);
@@ -877,9 +992,11 @@ function BodyweightModal({ onSave, onClose, lastWeight }) {
 }
 
 function MeasurementsModal({ onSave, onClose, lastEntry }) {
+  // P2-3: do NOT prefill with last values (that produced fake "unchanged" entries).
+  // Fields start empty; last value shows only as a grey placeholder hint.
   const [values, setValues] = useState(() => {
     const init = {};
-    MEASUREMENT_FIELDS.forEach(f => { init[f.id] = lastEntry?.[f.id] || ""; });
+    MEASUREMENT_FIELDS.forEach(f => { init[f.id] = ""; });
     return init;
   });
   const hasAny = Object.values(values).some(v => v !== "");
@@ -910,7 +1027,13 @@ function MeasurementsModal({ onSave, onClose, lastEntry }) {
           <button onClick={() => {
             if (!hasAny) return;
             const entry = { date: new Date().toISOString() };
-            MEASUREMENT_FIELDS.forEach(f => { if (values[f.id]) entry[f.id] = parseFloat(values[f.id]); });
+            // For fields the user filled, use the new value. For blank fields, carry
+            // forward the last known value so the record stays complete (but this only
+            // happens when at least one field was actually changed).
+            MEASUREMENT_FIELDS.forEach(f => {
+              if (values[f.id]) entry[f.id] = parseFloat(values[f.id]);
+              else if (lastEntry?.[f.id] != null) entry[f.id] = lastEntry[f.id];
+            });
             onSave(entry);
           }} disabled={!hasAny}
             className={`flex-1 py-3 rounded-xl text-sm font-semibold ${hasAny ? "bg-navy text-navy-light" : "bg-gray-700 opacity-50"}`}>
@@ -1317,7 +1440,7 @@ function HomeView({ dup, history, bwHistory, nextWorkout, prs, streak, missed, l
 
 function LogView({
   session, setSession, elapsed, prs, emphasisOvr, settings,
-  accItems, setAccItems, rpe, setRpe, note, setNote, suggested, lastDone,
+  accItems, setAccItems, rpe, setRpe, note, setNote, suggested, lastDone, accLastValues,
   customTemplates, onToggleOverride, onSwapExercise, onSave, onShowPlates, onShowTimer,
   onShowAccPicker, onShowTemplatePicker, accMode, setAccMode, saved
 }) {
@@ -1613,10 +1736,6 @@ function LogView({
         <div className="flex justify-between items-center mb-3">
           <div className="font-semibold">Accessory Work</div>
           <div className="flex gap-2">
-            <button onClick={() => setAccMode(m => m === "quick" ? "detailed" : "quick")}
-              className="text-xs bg-gray-800 border border-gray-700 px-3 py-1.5 rounded-full">
-              {accMode === "quick" ? "+ weight" : "quick"}
-            </button>
             <button onClick={onShowTemplatePicker} className="text-xs bg-gray-800 border border-gray-700 px-3 py-1.5 rounded-full">📋</button>
             <button onClick={onShowAccPicker} className="text-xs bg-navy text-navy-light px-3 py-1.5 rounded-full">+ Add</button>
           </div>
@@ -1646,14 +1765,12 @@ function LogView({
             <input type="number" inputMode="numeric" value={acc.reps}
               onChange={e => updateAccessory(idx, "reps", e.target.value)}
               className="w-10 bg-gray-800 border border-gray-700 rounded-lg px-1 py-1 text-center text-xs text-white outline-none" />
-            {accMode === "detailed" && (
-              <>
-                <span className="text-xs text-gray-500">@</span>
-                <input type="number" inputMode="decimal" placeholder="lb" value={acc.weight}
-                  onChange={e => updateAccessory(idx, "weight", e.target.value)}
-                  className="w-14 bg-gray-800 border border-gray-700 rounded-lg px-1 py-1 text-center text-xs text-white outline-none" />
-              </>
-            )}
+            <span className="text-xs text-gray-500">@</span>
+            <input type="number" inputMode="decimal"
+              placeholder={accLastValues[acc.id]?.weight ? String(accLastValues[acc.id].weight) : "lb"}
+              value={acc.weight}
+              onChange={e => updateAccessory(idx, "weight", e.target.value)}
+              className="w-14 bg-gray-800 border border-gray-700 rounded-lg px-1 py-1 text-center text-xs text-white outline-none" />
             <button onClick={() => removeAccessory(idx)}
               className="text-gray-500 hover:text-red-400 text-lg leading-none flex-shrink-0 w-8 h-8 flex items-center justify-center">✕</button>
           </div>
@@ -1782,9 +1899,52 @@ function HistoryView({ history, onEdit }) {
 function ProgressView({ history, dup, prs, bwHistory, measurements, selEx, setSelEx, onExport, onShowImport }) {
   const volumeData = useMemo(() => getVolumeHistory(history), [history]);
   const calendarData = useMemo(() => getCalendarData(history), [history]);
+  const muscleSets = useMemo(() => getWeeklyMuscleSets(history), [history]);
+  const regressions = useMemo(() => getRegressions(history, dup), [history, dup]);
   return (
     <div className="p-4 space-y-5">
       <h2 className="font-bold text-lg">Progress</h2>
+
+      {/* P3-d: Regression flags */}
+      {regressions.length > 0 && (
+        <div className="bg-red-950 bg-opacity-40 rounded-2xl p-4 border border-red-900">
+          <div className="font-semibold mb-2 text-red-300">⚠ Regressed lifts (below 8-week peak)</div>
+          <div className="space-y-1">
+            {regressions.map((r, i) => (
+              <div key={i} className="text-xs text-red-200 flex justify-between">
+                <span>{r.name} ({r.track})</span>
+                <span>{r.now}lb · peak was {r.peak}lb</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* P3-b: Weekly sets by muscle group */}
+      <div className="bg-gray-900 rounded-2xl p-4 border border-gray-800">
+        <div className="font-semibold mb-1">Weekly Sets by Muscle</div>
+        <div className="text-xs text-gray-500 mb-3">Last 7 days · target ranges shown</div>
+        <div className="space-y-2">
+          {Object.entries(MUSCLE_TARGETS).map(([muscle, [lo, hi]]) => {
+            const val = Math.round((muscleSets[muscle] || 0) * 10) / 10;
+            const status = val < lo ? "under" : val > hi ? "over" : "on";
+            const color = status === "under" ? "#f87171" : status === "over" ? "#fbbf24" : "#22c55e";
+            const pct = Math.min(100, (val / hi) * 100);
+            return (
+              <div key={muscle}>
+                <div className="flex justify-between text-xs mb-0.5">
+                  <span className="text-gray-300">{muscle}</span>
+                  <span style={{ color }}>{val} / {lo}-{hi}</span>
+                </div>
+                <div className="h-1.5 bg-gray-800 rounded-full overflow-hidden">
+                  <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: color }} />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <div className="text-xs text-gray-600 mt-3">Estimates from completed sets. Secondary muscles get partial credit.</div>
+      </div>
 
       {/* Training Calendar */}
       <div className="bg-gray-900 rounded-2xl p-4 border border-gray-800">
@@ -2372,6 +2532,7 @@ export default function App() {
   const prs = useMemo(() => getPersonalRecords(history), [history]);
   const streak = useMemo(() => getWeeklyStreak(history), [history]);
   const lastDone = useMemo(() => getAccessoryLastDone(history), [history]);
+  const accLastValues = useMemo(() => getAccessoryLastValues(history), [history]);
   const suggested = useMemo(() => getSuggestedAccessories(history), [history]);
 
   const lastGap = history.length ? daysSinceDate(history[history.length - 1].date) : null;
@@ -2419,7 +2580,8 @@ export default function App() {
 
     const initAcc = suggested.map(id => {
       const acc = ACCESSORIES.find(a => a.id === id);
-      return { id, name: acc.name, sets: "3", reps: "10", weight: "", done: false };
+      const prev1 = getAccessoryLastValues(history)[id] || {};
+      return { id, name: acc.name, sets: prev1.sets || "3", reps: prev1.reps || "10", weight: prev1.weight || "", done: false };
     });
     setAccItems(initAcc);
     setEmphasisOvr(overrides);
@@ -2517,7 +2679,10 @@ export default function App() {
   function saveSession() {
     try {
       clearInterval(timerRef.current);
-      const duration = Math.floor((Date.now() - sessStart) / 60000);
+      const rawDuration = Math.floor((Date.now() - sessStart) / 60000);
+      // P2-2: cap at 180 min; a session running longer almost certainly means the
+      // timer kept going while backgrounded. Record the cap rather than garbage.
+      const duration = rawDuration > 180 ? 180 : rawDuration;
 
       // Accessory session: no compound exercises, no DUP progression, no A/B rotation change
       if (session.workout === "ACC") {
@@ -2592,7 +2757,14 @@ export default function App() {
   function addAccessory(id) {
     if (accItems.find(acc => acc.id === id)) return;
     const acc = ACCESSORIES.find(a => a.id === id);
-    setAccItems(prev => [...prev, { id, name: acc.name, sets: "3", reps: "10", weight: "", done: false }]);
+    const prev1 = accLastValues[id] || {};
+    setAccItems(prev => [...prev, {
+      id, name: acc.name,
+      sets: prev1.sets || "3",
+      reps: prev1.reps || "10",
+      weight: prev1.weight || "",
+      done: false,
+    }]);
     setShowAccPicker(false);
   }
 
@@ -2601,7 +2773,14 @@ export default function App() {
       .filter(id => !accItems.find(a => a.id === id))
       .map(id => {
         const acc = ACCESSORIES.find(a => a.id === id);
-        return { id, name: acc.name, sets: "3", reps: "10", weight: "", done: false };
+        const prev1 = accLastValues[id] || {};
+        return {
+          id, name: acc.name,
+          sets: prev1.sets || "3",
+          reps: prev1.reps || "10",
+          weight: prev1.weight || "",
+          done: false,
+        };
       });
     setAccItems(prev => [...prev, ...newItems]);
     setShowTemplatePicker(false);
@@ -2798,7 +2977,7 @@ export default function App() {
           prs={prs} emphasisOvr={emphasisOvr} settings={settings}
           accItems={accItems} setAccItems={setAccItems}
           rpe={rpe} setRpe={setRpe} note={note} setNote={setNote}
-          suggested={suggested} lastDone={lastDone} customTemplates={customTemplates}
+          suggested={suggested} lastDone={lastDone} accLastValues={accLastValues} customTemplates={customTemplates}
           onToggleOverride={toggleOverride} onSwapExercise={swapExercise}
           onSave={() => {
             if (session) {
