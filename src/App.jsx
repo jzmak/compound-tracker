@@ -198,48 +198,57 @@ function initializeDUP() {
   return state;
 }
 
-function applyDUPProgression(currentDup, completedExercises) {
+function applyDUPProgression(currentDup, completedExercises, history) {
   const updated = JSON.parse(JSON.stringify(currentDup));
 
   completedExercises.forEach(exercise => {
     const config = EXERCISES[exercise.id];
     if (!config) return;
-    // Initialize dup state for any exercise that lacks it (e.g. newly added glute/substitute lifts)
     if (!updated[exercise.id]) {
       updated[exercise.id] = { hW: config.hW, sW: config.sW, hStalls: 0, sStalls: 0, nextType: "hypertrophy" };
     }
 
     const sessionType = exercise.sessionType;
-    const targetReps = sessionType === "hypertrophy" ? config.repMax : config.sRepMax;
-    const allSetsHitTarget = exercise.sets.every(set => set.completed && parseFloat(set.reps) >= targetReps);
+    const isHyp = sessionType === "hypertrophy";
+    // P1-1 FIX: success is hitting the BOTTOM of the rep range (repMin) on all sets,
+    // not the top (repMax). Doing 10 clean reps when the range is 8-12 is a success.
+    const successReps = isHyp ? config.repMin : config.sRepMin;
+    const allSetsHitTarget = exercise.sets.every(set => set.completed && parseFloat(set.reps) >= successReps);
     const anySetsCompleted = exercise.sets.some(set => set.completed);
 
     if (!anySetsCompleted) return;
 
+    const wKey = isHyp ? "hW" : "sW";
+    const stallKey = isHyp ? "hStalls" : "sStalls";
+
     if (allSetsHitTarget) {
-      if (sessionType === "hypertrophy") {
-        updated[exercise.id].hW += config.inc;
-        updated[exercise.id].hStalls = 0;
-      } else {
-        updated[exercise.id].sW += config.inc;
-        updated[exercise.id].sStalls = 0;
-      }
+      updated[exercise.id][wKey] += config.inc;
+      updated[exercise.id][stallKey] = 0;
+      updated[exercise.id].lastDeload = null;
     } else {
-      if (sessionType === "hypertrophy") {
-        updated[exercise.id].hStalls++;
-        if (updated[exercise.id].hStalls >= config.stallN) {
-          updated[exercise.id].hW = roundToIncrement(updated[exercise.id].hW * (1 - config.resetPct), config.inc);
-          updated[exercise.id].hStalls = 0;
+      updated[exercise.id][stallKey]++;
+      if (updated[exercise.id][stallKey] >= config.stallN) {
+        const currentW = updated[exercise.id][wKey];
+        // P1-2 FIX: cap deload at 10%, and never drop below the highest weight
+        // successfully completed on this track in the trailing 4 same-track sessions.
+        const capped = roundToIncrement(currentW * 0.9, config.inc);
+        let floor = 0;
+        if (history) {
+          const sameTrack = history
+            .flatMap(s => (s.exercises || []).filter(e => e.id === exercise.id && e.sessionType === sessionType))
+            .filter(e => (e.sets || []).every(st => st.completed))
+            .slice(-4);
+          floor = sameTrack.reduce((mx, e) => Math.max(mx, e.weight || 0), 0);
         }
-      } else {
-        updated[exercise.id].sStalls++;
-        if (updated[exercise.id].sStalls >= config.stallN) {
-          updated[exercise.id].sW = roundToIncrement(updated[exercise.id].sW * (1 - config.resetPct), config.inc);
-          updated[exercise.id].sStalls = 0;
+        const newW = Math.max(capped, floor || capped);
+        if (newW < currentW) {
+          updated[exercise.id][wKey] = newW;
+          updated[exercise.id].lastDeload = { track: sessionType, from: currentW, to: newW, reason: `${config.stallN} stalls`, date: new Date().toISOString() };
         }
+        updated[exercise.id][stallKey] = 0;
       }
     }
-    updated[exercise.id].nextType = sessionType === "hypertrophy" ? "strength" : "hypertrophy";
+    updated[exercise.id].nextType = isHyp ? "strength" : "hypertrophy";
   });
   return updated;
 }
@@ -358,7 +367,7 @@ function getCalendarData(history) {
   const map = {};
   history.forEach(session => {
     const dateKey = new Date(session.date).toISOString().split("T")[0];
-    map[dateKey] = { workout: session.workout, rpe: session.rpe };
+    map[dateKey] = { workout: session.workout, rpe: session.rpe, isDeload: session.isDeload };
   });
   return map;
 }
@@ -621,6 +630,19 @@ function useWorkoutStorage() {
       const savedSettings = storageGet(STORAGE_KEYS.settings);
       if (savedSettings) setSettings(prev => ({ ...prev, ...savedSettings }));
 
+      // One-time correction of weights corrupted by the pre-fix persistence bug.
+      // tbar_row real working weight is 90 (2x45 plates); standing_ht is 140.
+      if (!localStorage.getItem("wt_wfix1")) {
+        const dupNow = storageGet(STORAGE_KEYS.dup);
+        if (dupNow && typeof dupNow === "object") {
+          if (dupNow.tbar_row && dupNow.tbar_row.hW < 90) dupNow.tbar_row.hW = 90;
+          if (dupNow.standing_ht && dupNow.standing_ht.hW < 140) dupNow.standing_ht.hW = 140;
+          storageSet(STORAGE_KEYS.dup, dupNow);
+          setDup(dupNow);
+        }
+        localStorage.setItem("wt_wfix1", "1");
+      }
+
       const savedTemplates = storageGet(STORAGE_KEYS.accTemplates);
       if (savedTemplates) setCustomTemplates(prev => ({ ...prev, ...savedTemplates }));
 
@@ -746,34 +768,28 @@ function RestTimer({ defaultSecs, onClose }) {
   const progressPct = ((defaultSecs - remaining) / defaultSecs) * 100;
   const mins = Math.floor(remaining / 60);
   const secs = remaining % 60;
-  const circumference = 2 * Math.PI * 44;
+  const done = remaining === 0;
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50 p-6">
-      <div className="bg-gray-900 rounded-3xl p-8 w-full max-w-xs border border-gray-700 text-center">
-        <div className="text-gray-400 text-sm mb-4">Rest Timer</div>
-        <div className="relative w-36 h-36 mx-auto mb-6">
-          <svg className="w-full h-full -rotate-90" viewBox="0 0 100 100">
-            <circle cx="50" cy="50" r="44" fill="none" stroke="#1f2937" strokeWidth="8" />
-            <circle cx="50" cy="50" r="44" fill="none"
-              stroke={remaining === 0 ? "#22c55e" : "#1e3a5f"}
-              strokeWidth="8"
-              strokeDasharray={circumference}
-              strokeDashoffset={circumference * (1 - progressPct / 100)}
-              strokeLinecap="round"
-              className="transition-all duration-300" />
-          </svg>
-          <div className="absolute inset-0 flex items-center justify-center">
-            <span className="text-4xl font-bold">{mins}:{secs.toString().padStart(2, "0")}</span>
-          </div>
+    <div className="fixed bottom-0 left-0 right-0 z-50 px-3 pb-3">
+      <div className="max-w-md mx-auto bg-gray-900 border border-gray-700 rounded-2xl shadow-lg overflow-hidden">
+        {/* progress bar */}
+        <div className="h-1 bg-gray-800">
+          <div className="h-full transition-all duration-300"
+            style={{ width: `${progressPct}%`, backgroundColor: done ? "#22c55e" : "#1e3a5f" }} />
         </div>
-        {remaining === 0 && <div className="text-green-400 font-bold mb-4">Rest complete!</div>}
-        <div className="flex gap-3">
-          <button onClick={togglePause} className="flex-1 bg-gray-700 py-3 rounded-xl text-sm font-semibold">
+        <div className="flex items-center gap-3 px-4 py-2.5">
+          <div className="flex items-center gap-2 flex-1">
+            <span className="text-xs text-gray-500">Rest</span>
+            <span className={`text-xl font-bold tabular-nums ${done ? "text-green-400" : "text-white"}`}>
+              {done ? "Done!" : `${mins}:${secs.toString().padStart(2, "0")}`}
+            </span>
+          </div>
+          <button onClick={togglePause} className="text-xs bg-gray-700 px-3 py-1.5 rounded-lg font-semibold text-gray-200">
             {paused ? "Resume" : "Pause"}
           </button>
-          <button onClick={reset} className="flex-1 bg-gray-700 py-3 rounded-xl text-sm font-semibold">Reset</button>
-          <button onClick={onClose} className="flex-1 bg-navy text-navy-light py-3 rounded-xl text-sm font-semibold">Done</button>
+          <button onClick={reset} className="text-xs bg-gray-700 px-3 py-1.5 rounded-lg font-semibold text-gray-200">Reset</button>
+          <button onClick={onClose} className="text-xs bg-navy text-navy-light px-3 py-1.5 rounded-lg font-semibold">✕</button>
         </div>
       </div>
     </div>
@@ -1179,6 +1195,7 @@ function ChartTooltip({ active, payload }) {
 
 function HomeView({ dup, history, bwHistory, nextWorkout, prs, streak, missed, lastGap, fatigue, wEmphasis, setWEmphasis, onStartSession, onStartAccessory, onLogBW, onLogMeasurements }) {
   const weeklyVol = useMemo(() => getWeeklyVolume(history), [history]);
+  const [deloadArmed, setDeloadArmed] = useState({});
 
   return (
     <div className="p-4 space-y-4">
@@ -1207,7 +1224,6 @@ function HomeView({ dup, history, bwHistory, nextWorkout, prs, streak, missed, l
       {["A", "B"].map(workoutKey => {
         const workout = WORKOUTS[workoutKey];
         const isNext = workoutKey === nextWorkout;
-        const currentEmphasis = wEmphasis[workoutKey] || workout.defaultEmphasis;
 
         return (
           <div key={workoutKey} className={`bg-gray-900 rounded-2xl p-4 border ${isNext ? "border-navy" : "border-gray-800"}`}>
@@ -1215,13 +1231,14 @@ function HomeView({ dup, history, bwHistory, nextWorkout, prs, streak, missed, l
               <div className="flex items-center gap-2 flex-wrap">
                 <div className="font-bold text-sm">{workout.label}</div>
                 {isNext && <span className="text-xs bg-navy text-navy-light px-2 py-0.5 rounded-full font-semibold">Next</span>}
-                <button onClick={() => setWEmphasis(prev => ({ ...prev, [workoutKey]: currentEmphasis === "hypertrophy" ? "strength" : "hypertrophy" }))}
-                  className="text-xs px-2 py-0.5 rounded-full border font-semibold"
-                  style={{ borderColor: TYPE_COLORS[currentEmphasis], color: TYPE_COLORS[currentEmphasis] }}>
-                  {currentEmphasis}
+                <button onClick={() => setDeloadArmed(prev => ({ ...prev, [workoutKey]: !prev[workoutKey] }))}
+                  className={`text-xs px-2 py-0.5 rounded-full border font-semibold ${
+                    deloadArmed[workoutKey] ? "border-purple-500 text-purple-300 bg-purple-900 bg-opacity-30" : "border-gray-700 text-gray-500"
+                  }`}>
+                  {deloadArmed[workoutKey] ? "deload on" : "deload"}
                 </button>
               </div>
-              <button onClick={() => onStartSession(workoutKey)}
+              <button onClick={() => onStartSession(workoutKey, deloadArmed[workoutKey])}
                 className={`font-bold py-2 px-4 rounded-xl text-sm ${isNext ? "bg-navy text-navy-light" : "bg-gray-700 text-white"}`}>
                 Start
               </button>
@@ -1229,14 +1246,15 @@ function HomeView({ dup, history, bwHistory, nextWorkout, prs, streak, missed, l
 
             {workout.exercises.map(id => {
               const config = EXERCISES[id];
-              const dupState = dup[id] || { hW: config.hW, sW: config.sW, hStalls: 0, sStalls: 0 };
-              const emphasis = wEmphasis[workoutKey] || workout.defaultEmphasis;
-              const isHyp = emphasis === "hypertrophy";
+              const dupState = dup[id] || { hW: config.hW, sW: config.sW, hStalls: 0, sStalls: 0, nextType: "hypertrophy" };
+              const track = dupState.nextType || workout.defaultEmphasis;
+              const isHyp = track === "hypertrophy";
               const weight = isHyp ? dupState.hW : dupState.sW;
               const targetReps = isHyp ? config.repMax : config.sRepMax;
               const repMin = isHyp ? config.repMin : config.sRepMin;
               const prWeight = prs[id]?.weight || 0;
               const estimated = estimateE1RM(weight, targetReps);
+              const stalls = isHyp ? dupState.hStalls : dupState.sStalls;
 
               return (
                 <div key={id} className="flex justify-between items-center text-sm py-1.5 border-t border-gray-800">
@@ -1246,11 +1264,13 @@ function HomeView({ dup, history, bwHistory, nextWorkout, prs, streak, missed, l
                       {weight > prWeight && prWeight > 0 ? " 🎯" : ""}
                     </div>
                     <div className="text-xs text-gray-600">
-                      {prWeight > 0 ? "PR: " + prWeight + "lb · " : ""}e1RM: {prs[id]?.e1rm || 0}lb
+                      <span style={{ color: TYPE_COLORS[track] }}>{isHyp ? "hyp" : "str"}</span>
+                      {stalls > 0 ? ` · ⚠ ${stalls} stall${stalls > 1 ? "s" : ""}` : ""}
+                      {prWeight > 0 ? " · PR " + prWeight + "lb" : ""}
                     </div>
                   </div>
                   <div className="text-right">
-                    <div className="font-semibold" style={{ color: TYPE_COLORS[emphasis] }}>
+                    <div className="font-semibold" style={{ color: TYPE_COLORS[track] }}>
                       {config.sets}×{repMin}-{targetReps} @ {weight}lb
                     </div>
                     <div className="text-xs text-gray-500">e1RM ~{estimated}lb</div>
@@ -1465,6 +1485,12 @@ function LogView({
                   className="w-10 h-10 rounded-full bg-gray-700 font-bold flex items-center justify-center text-lg active:bg-gray-600">+</button>
               </div>
             </div>
+
+            {exercise.isDeload && (
+              <div className="bg-purple-900 bg-opacity-30 border border-purple-800 rounded-lg px-3 py-1.5 mb-2 text-xs text-purple-300">
+                Deload · working weight is {exercise.workingWeight}lb (preserved, won't change)
+              </div>
+            )}
 
             {/* Inline plate breakdown */}
             {(() => {
@@ -2353,28 +2379,33 @@ export default function App() {
   const recentRPEs = history.slice(-FATIGUE_WINDOW).map(session => session.rpe).filter(Boolean);
   const fatigue = recentRPEs.length >= FATIGUE_WINDOW - 1 && recentRPEs.every(r => r >= FATIGUE_RPE_THRESHOLD);
 
-  function buildSession(workoutKey, overrides, selections) {
+  function buildSession(workoutKey, overrides, selections, isDeload) {
     const workoutEmphasis = wEmphasis[workoutKey] || WORKOUTS[workoutKey].defaultEmphasis;
     const workout = WORKOUTS[workoutKey];
     const exerciseIds = workout.slots.map((slot, i) => selections?.[i] || slot.primary);
     const exercises = exerciseIds.map(id => {
       const config = EXERCISES[id];
-      const effectiveEmphasis = overrides[id] || workoutEmphasis;
+      const dupState = dup[id] || { hW: config.hW, sW: config.sW, hStalls: 0, sStalls: 0, nextType: "hypertrophy" };
+      // TRUE DUP: each exercise's track comes from its own nextType, not the workout label.
+      // A manual override (from the emphasis toggle) still wins if present.
+      const effectiveEmphasis = overrides[id] || dupState.nextType || workoutEmphasis;
       const isHyp = effectiveEmphasis === "hypertrophy";
-      const dupState = dup[id] || { hW: config.hW, sW: config.sW, hStalls: 0, sStalls: 0 };
-      const weight = isHyp ? dupState.hW : dupState.sW;
+      const workingWeight = isHyp ? dupState.hW : dupState.sW;
+      const weight = isDeload ? roundToIncrement(workingWeight * 0.6, config.inc || 5) : workingWeight;
       const targetReps = isHyp ? config.repMax : config.sRepMax;
       const repMin = isHyp ? config.repMin : config.sRepMin;
 
+      // Pull last-session data from the SAME track only, so hyp reads hyp and str reads str.
       let lastWeight = null, lastSets = null;
       for (let i = history.length - 1; i >= 0; i--) {
-        const found = history[i].exercises?.find(ex => ex.id === id);
+        const found = history[i].exercises?.find(ex => ex.id === id && ex.sessionType === effectiveEmphasis);
         if (found) { lastWeight = found.weight; lastSets = found.sets; break; }
       }
 
       return {
         id, name: config.name, note: config.note, bar: config.bar,
-        weight, targetReps, repMin, sessionType: effectiveEmphasis,
+        weight, workingWeight, isDeload: !!isDeload,
+        targetReps, repMin, sessionType: effectiveEmphasis,
         rest: isHyp ? 90 : 180,
         lastWeight, lastSets,
         stalls: isHyp ? dupState.hStalls : dupState.sStalls,
@@ -2395,10 +2426,10 @@ export default function App() {
     return exercises;
   }
 
-  function startSession(workoutKey) {
+  function startSession(workoutKey, isDeload) {
     const defaultSelections = {};
     setSlotSelections(defaultSelections);
-    const exercises = buildSession(workoutKey, {}, defaultSelections);
+    const exercises = buildSession(workoutKey, {}, defaultSelections, isDeload);
     setRpe(null);
     setNote("");
     setSessStart(Date.now());
@@ -2406,7 +2437,8 @@ export default function App() {
     setResets([]);
     setSession({
       workout: workoutKey,
-      label: WORKOUTS[workoutKey].label,
+      label: WORKOUTS[workoutKey].label + (isDeload ? " (Deload)" : ""),
+      isDeload: !!isDeload,
       exercises,
       date: new Date().toISOString(),
       emphasis: wEmphasis[workoutKey] || WORKOUTS[workoutKey].defaultEmphasis,
@@ -2437,7 +2469,7 @@ export default function App() {
     if (!session) return;
     const newSelections = { ...slotSelections, [slotIdx]: newExerciseId };
     setSlotSelections(newSelections);
-    const exercises = buildSession(session.workout, emphasisOvr, newSelections);
+    const exercises = buildSession(session.workout, emphasisOvr, newSelections, session.isDeload);
     setSession(prev => ({
       ...prev,
       exercises: exercises.map((ex, i) => {
@@ -2474,7 +2506,7 @@ export default function App() {
     const newOverrides = { ...emphasisOvr, [exerciseId]: next };
     setEmphasisOvr(newOverrides);
     if (session) {
-      const exercises = buildSession(session.workout, newOverrides, slotSelections);
+      const exercises = buildSession(session.workout, newOverrides, slotSelections, session.isDeload);
       setSession(prev => ({
         ...prev,
         exercises: exercises.map((ex, i) => ({ ...ex, sets: prev.exercises[i]?.sets || ex.sets })),
@@ -2497,9 +2529,21 @@ export default function App() {
         return;
       }
 
+      // Deload session: save to history for the record, but do NOT run progression
+      // or overwrite working weights. Working weight is preserved for next week.
+      if (session.isDeload) {
+        const fullSession = { ...session, rpe, note, duration, accessories: accItems };
+        saveHistory([...history, fullSession]);
+        saveNextWorkout(session.workout === "A" ? "B" : "A");
+        clearActiveSession();
+        setSaved(true);
+        setTimeout(() => { setSaved(false); setSession(null); setView("home"); }, 1400);
+        return;
+      }
+
       const fullSession = { ...session, rpe, note, duration, accessories: accItems };
       const newHistory = [...history, fullSession];
-      const newDup = applyDUPProgression(dup, session.exercises);
+      const newDup = applyDUPProgression(dup, session.exercises, history);
       const newNextWorkout = session.workout === "A" ? "B" : "A";
 
       const resetNotifications = [];
@@ -2720,15 +2764,21 @@ export default function App() {
 
       {/* Tab bar */}
       <div className="flex border-b border-gray-800 bg-gray-900">
-        {["home", "log", "history", "progress"].map(tab => (
-          <button key={tab}
-            onClick={() => handleNavigation(tab)}
-            className={`flex-1 py-2.5 text-xs font-medium capitalize ${
-              tab === view ? "border-b-2 border-navy text-white" : "text-gray-500"
-            }`}>
-            {tab === "home" ? "Home" : tab === "log" ? (session ? "Log ●" : "Log") : tab === "history" ? "History" : "Progress"}
-          </button>
-        ))}
+        {["home", "log", "history", "progress"].map(tab => {
+          const isLogDisabled = tab === "log" && !session;
+          return (
+            <button key={tab}
+              onClick={() => { if (!isLogDisabled) handleNavigation(tab); }}
+              disabled={isLogDisabled}
+              className={`flex-1 py-2.5 text-xs font-medium capitalize ${
+                tab === view ? "border-b-2 border-navy text-white"
+                : isLogDisabled ? "text-gray-700"
+                : "text-gray-500"
+              }`}>
+              {tab === "home" ? "Home" : tab === "log" ? (session ? "Log ●" : "Log") : tab === "history" ? "History" : "Progress"}
+            </button>
+          );
+        })}
       </div>
 
       {/* Views */}
