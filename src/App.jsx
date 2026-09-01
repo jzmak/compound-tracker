@@ -839,8 +839,7 @@ function useWorkoutStorage() {
     const w = parseFloat(weight);
     // P2-1: range validation
     if (!(w >= 50 && w <= 500)) {
-      alert(`Bodyweight ${weight} looks out of range (expected 50-500 lb). Not saved.`);
-      return;
+      return { ok: false, error: `That looks out of range (50-500 lb expected).` };
     }
     const now = Date.now();
     let updated = [...bwHistory];
@@ -853,6 +852,7 @@ function useWorkoutStorage() {
     }
     setBwHistory(updated);
     storageSet(STORAGE_KEYS.bw, updated);
+    return { ok: true };
   }, [bwHistory]);
 
   const saveActiveSession = useCallback((sessionData) => {
@@ -890,11 +890,8 @@ function useWorkoutStorage() {
     const now = Date.now();
     let updated = [...measurements];
     const last = updated[updated.length - 1];
-    // P2-3: warn if every value is identical to the previous entry (likely unchanged prefill)
-    if (last && ["chest", "waist", "arms", "legs"].every(k => last[k] === entry[k])) {
-      if (!confirm("These measurements are identical to your last entry. Save anyway?")) return;
-    }
-    // P2-3: dedupe rapid same-entry saves within 5 minutes
+    // P2-3: dedupe rapid same-entry saves within 5 minutes. Exact-duplicate rows are
+    // also collapsed at the analytics layer, so no blocking confirm is needed here.
     if (last && (now - new Date(last.date).getTime()) < 5 * 60 * 1000) {
       updated[updated.length - 1] = { ...entry, date: new Date().toISOString() };
     } else {
@@ -1045,6 +1042,7 @@ function PlateCalculator({ exercises, onClose }) {
 
 function BodyweightModal({ onSave, onClose, lastWeight }) {
   const [value, setValue] = useState(lastWeight || "");
+  const [error, setError] = useState("");
   return (
     <div className="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50 p-6">
       <div className="bg-gray-900 rounded-3xl p-6 w-full max-w-xs border border-gray-700 text-center">
@@ -1052,12 +1050,17 @@ function BodyweightModal({ onSave, onClose, lastWeight }) {
         <div className="font-bold text-lg mb-1">Sunday Check-in</div>
         <div className="text-gray-400 text-sm mb-4">Log your bodyweight</div>
         <input type="number" inputMode="decimal" placeholder="e.g. 162.0"
-          value={value} onChange={e => setValue(e.target.value)}
+          value={value} onChange={e => { setValue(e.target.value); setError(""); }}
           className="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-3 text-center text-xl font-bold text-white outline-none focus:border-navy mb-2" />
-        <div className="text-xs text-gray-500 mb-4">lb</div>
+        <div className="text-xs text-gray-500 mb-2">lb</div>
+        {error && <div className="text-xs text-red-400 mb-3">{error}</div>}
         <div className="flex gap-3">
           <button onClick={onClose} className="flex-1 bg-gray-700 py-3 rounded-xl text-sm font-semibold">Skip</button>
-          <button onClick={() => value && onSave(parseFloat(value))}
+          <button onClick={() => {
+            if (!value) return;
+            const res = onSave(parseFloat(value));
+            if (res && !res.ok) setError(res.error);
+          }}
             className="flex-1 bg-navy text-navy-light py-3 rounded-xl text-sm font-semibold">Save</button>
         </div>
       </div>
@@ -1132,6 +1135,19 @@ function ConfirmDialog({ title, message, onConfirm, onCancel, confirmLabel = "Co
             {confirmLabel}
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// Styled replacement for native alert() — single dismiss button.
+function AlertDialog({ title, message, onClose, closeLabel = "OK" }) {
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50 p-6">
+      <div className="bg-gray-900 rounded-3xl p-6 w-full max-w-xs border border-gray-700 text-center space-y-4">
+        {title && <div className="font-bold text-lg">{title}</div>}
+        <div className="text-sm text-gray-400">{message}</div>
+        <button onClick={onClose} className="w-full bg-navy text-navy-light py-3 rounded-xl text-sm font-semibold">{closeLabel}</button>
       </div>
     </div>
   );
@@ -1396,6 +1412,18 @@ function HomeView({ dup, history, bwHistory, nextWorkout, prs, streak, missed, l
 
   return (
     <div className="p-4 space-y-4">
+      {/* Item 4: Today hero — the one-glance answer to "what's my session?" */}
+      <div className="bg-navy rounded-2xl p-4 flex items-center justify-between">
+        <div>
+          <div className="text-xs text-navy-light opacity-80">Up next</div>
+          <div className="text-lg font-bold text-white">{WORKOUTS[nextWorkout]?.label || "Workout"}</div>
+        </div>
+        <button onClick={() => onStartSession(nextWorkout, deloadArmed[nextWorkout])}
+          className="bg-navy-light text-navy font-bold py-2.5 px-5 rounded-xl text-sm">
+          Start
+        </button>
+      </div>
+
       {missed && <div className="bg-yellow-950 border border-yellow-800 rounded-xl p-3 text-sm text-yellow-300">{lastGap} days since last session.</div>}
       {fatigue && <div className="bg-red-950 border border-red-800 rounded-xl p-3 text-sm text-red-300">RPE 8+ for {FATIGUE_WINDOW - 1} straight sessions. Consider a lighter day.</div>}
 
@@ -1514,7 +1542,7 @@ function HomeView({ dup, history, bwHistory, nextWorkout, prs, streak, missed, l
 
 function LogView({
   session, setSession, elapsed, prs, emphasisOvr, settings,
-  accItems, setAccItems, rpe, setRpe, note, setNote, suggested, lastDone, accLastValues,
+  accItems, setAccItems, rpe, setRpe, note, setNote, suggested, lastDone, accLastValues, onNotify,
   customTemplates, onToggleOverride, onSwapExercise, onSave, onShowPlates, onShowTimer,
   onShowAccPicker, onShowTemplatePicker, accMode, setAccMode, saved
 }) {
@@ -1824,50 +1852,64 @@ function LogView({
           <div className="text-xs text-gray-600 mb-2">No accessories. Tap + Add or load a template.</div>
         )}
         {accItems.map((acc, idx) => (
-          <div key={acc.id} className={`flex items-center gap-2 py-2 border-t border-gray-800 ${acc.done ? "opacity-60" : ""}`}>
-            <button onClick={() => {
-              // Finding C: can't mark done without a weight or an explicit unloaded flag
-              if (!acc.done && !acc.unloaded && !(acc.weight && parseFloat(acc.weight) > 0)) {
-                alert(`Enter a weight for ${acc.name}, or tap "BW" if it's bodyweight/unloaded.`);
-                return;
-              }
-              updateAccessory(idx, "done", !acc.done);
-            }}
-              className={`w-8 h-8 rounded-full flex items-center justify-center text-xs flex-shrink-0 transition-colors ${
-                acc.done ? "bg-green-600" : "bg-gray-700"
-              }`}>
-              {acc.done ? "✓" : "○"}
-            </button>
-            <div className="flex-1 min-w-0">
-              <div className="text-sm text-white truncate">
-                {acc.name}
-                {suggested.includes(acc.id) && <span className="text-xs text-blue-300 ml-1">★</span>}
+          <div key={acc.id} className={`py-2.5 border-t border-gray-800 ${acc.done ? "opacity-60" : ""}`}>
+            {/* Row 1: check + name + delete */}
+            <div className="flex items-center gap-2 mb-2">
+              <button onClick={() => {
+                if (!acc.done && !acc.unloaded && !(acc.weight && parseFloat(acc.weight) > 0)) {
+                  onNotify(`Enter a weight for ${acc.name}, or tap "BW" if it's bodyweight or unloaded.`);
+                  return;
+                }
+                updateAccessory(idx, "done", !acc.done);
+              }}
+                className={`w-8 h-8 rounded-full flex items-center justify-center text-xs flex-shrink-0 transition-colors ${
+                  acc.done ? "bg-green-600" : "bg-gray-700"
+                }`}>
+                {acc.done ? "✓" : "○"}
+              </button>
+              <div className="flex-1 min-w-0">
+                <div className="text-sm text-white">
+                  {acc.name}
+                  {suggested.includes(acc.id) && <span className="text-xs text-blue-300 ml-1">★</span>}
+                </div>
+                {lastDone[acc.id] && <div className="text-xs text-gray-600">{daysSinceDate(lastDone[acc.id])}d ago</div>}
               </div>
-              {lastDone[acc.id] && <div className="text-xs text-gray-600">{daysSinceDate(lastDone[acc.id])}d ago</div>}
+              <button onClick={() => removeAccessory(idx)}
+                className="text-gray-500 hover:text-red-400 text-lg leading-none flex-shrink-0 w-8 h-8 flex items-center justify-center">✕</button>
             </div>
-            <input type="number" inputMode="numeric" value={acc.sets}
-              onChange={e => updateAccessory(idx, "sets", e.target.value)}
-              className="w-10 bg-gray-800 border border-gray-700 rounded-lg px-1 py-1 text-center text-xs text-white outline-none" />
-            <span className="text-xs text-gray-500">×</span>
-            <input type="number" inputMode="numeric" value={acc.reps}
-              onChange={e => updateAccessory(idx, "reps", e.target.value)}
-              className="w-10 bg-gray-800 border border-gray-700 rounded-lg px-1 py-1 text-center text-xs text-white outline-none" />
-            <span className="text-xs text-gray-500">@</span>
-            {acc.unloaded ? (
-              <button onClick={() => updateAccessory(idx, "unloaded", false)}
-                className="w-14 text-center text-xs text-blue-300 bg-blue-900 bg-opacity-30 border border-blue-800 rounded-lg py-1">BW</button>
-            ) : (
-              <input type="number" inputMode="decimal"
-                placeholder={accLastValues[acc.id]?.weight ? String(accLastValues[acc.id].weight) : "lb"}
-                value={acc.weight}
-                onChange={e => updateAccessory(idx, "weight", e.target.value)}
-                className="w-14 bg-gray-800 border border-gray-700 rounded-lg px-1 py-1 text-center text-xs text-white outline-none" />
-            )}
-            <button onClick={() => updateAccessory(idx, "unloaded", !acc.unloaded)}
-              title="Bodyweight / unloaded"
-              className={`text-xs flex-shrink-0 w-7 h-7 flex items-center justify-center rounded-lg ${acc.unloaded ? "text-blue-300" : "text-gray-600"}`}>BW</button>
-            <button onClick={() => removeAccessory(idx)}
-              className="text-gray-500 hover:text-red-400 text-lg leading-none flex-shrink-0 w-8 h-8 flex items-center justify-center">✕</button>
+            {/* Row 2: sets × reps @ weight + BW toggle */}
+            <div className="flex items-center gap-2 pl-10">
+              <div className="flex items-center gap-1">
+                <input type="number" inputMode="numeric" value={acc.sets}
+                  onChange={e => updateAccessory(idx, "sets", e.target.value)}
+                  className="w-12 bg-gray-800 border border-gray-700 rounded-lg px-1 py-1.5 text-center text-sm text-white outline-none" />
+                <span className="text-xs text-gray-500">sets</span>
+              </div>
+              <span className="text-xs text-gray-600">×</span>
+              <div className="flex items-center gap-1">
+                <input type="number" inputMode="numeric" value={acc.reps}
+                  onChange={e => updateAccessory(idx, "reps", e.target.value)}
+                  className="w-12 bg-gray-800 border border-gray-700 rounded-lg px-1 py-1.5 text-center text-sm text-white outline-none" />
+                <span className="text-xs text-gray-500">reps</span>
+              </div>
+              <span className="text-xs text-gray-600">@</span>
+              {acc.unloaded ? (
+                <button onClick={() => updateAccessory(idx, "unloaded", false)}
+                  className="w-16 text-center text-xs text-blue-300 bg-blue-900 bg-opacity-30 border border-blue-800 rounded-lg py-1.5">BW</button>
+              ) : (
+                <div className="flex items-center gap-1">
+                  <input type="number" inputMode="decimal"
+                    placeholder={accLastValues[acc.id]?.weight ? String(accLastValues[acc.id].weight) : "lb"}
+                    value={acc.weight}
+                    onChange={e => updateAccessory(idx, "weight", e.target.value)}
+                    className="w-16 bg-gray-800 border border-gray-700 rounded-lg px-1 py-1.5 text-center text-sm text-white outline-none" />
+                  <span className="text-xs text-gray-500">lb</span>
+                </div>
+              )}
+              <button onClick={() => updateAccessory(idx, "unloaded", !acc.unloaded)}
+                title="Bodyweight / unloaded"
+                className={`text-xs flex-shrink-0 px-2 py-1.5 rounded-lg border ml-auto ${acc.unloaded ? "text-blue-300 border-blue-800 bg-blue-900 bg-opacity-30" : "text-gray-500 border-gray-700"}`}>BW</button>
+            </div>
           </div>
         ))}
       </div>
@@ -2004,6 +2046,22 @@ function ProgressView({ history, dup, prs, bwHistory, measurements, selEx, setSe
     <div className="p-4 space-y-5">
       <h2 className="font-bold text-lg">Progress</h2>
 
+      {/* Item 3: quick-jump nav so the long Progress tab isn't a blind scroll */}
+      <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
+        {[
+          { id: "sec-week", label: "This Week" },
+          { id: "sec-lifts", label: "Lifts" },
+          { id: "sec-body", label: "Body" },
+          { id: "sec-data", label: "Data" },
+        ].map(s => (
+          <button key={s.id}
+            onClick={() => document.getElementById(s.id)?.scrollIntoView({ behavior: "smooth", block: "start" })}
+            className="flex-shrink-0 text-xs font-semibold bg-gray-800 border border-gray-700 text-gray-300 px-3 py-1.5 rounded-full">
+            {s.label}
+          </button>
+        ))}
+      </div>
+
       {/* P3-d: Regression flags */}
       {regressions.length > 0 && (
         <div className="bg-red-950 bg-opacity-40 rounded-2xl p-4 border border-red-900">
@@ -2020,7 +2078,7 @@ function ProgressView({ history, dup, prs, bwHistory, measurements, selEx, setSe
       )}
 
       {/* P3-b: Weekly sets by muscle group */}
-      <div className="bg-gray-900 rounded-2xl p-4 border border-gray-800">
+      <div id="sec-week" className="bg-gray-900 rounded-2xl p-4 border border-gray-800 scroll-mt-4">
         <div className="font-semibold mb-1">Weekly Sets by Muscle</div>
         <div className="text-xs text-gray-500 mb-3">Last 7 days · target ranges shown</div>
         <div className="space-y-2">
@@ -2148,7 +2206,7 @@ function ProgressView({ history, dup, prs, bwHistory, measurements, selEx, setSe
       </div>
 
       {/* Current Working Weights (expandable with charts) */}
-      <div className="bg-gray-900 rounded-2xl p-4 border border-gray-800">
+      <div id="sec-lifts" className="bg-gray-900 rounded-2xl p-4 border border-gray-800 scroll-mt-4">
         <div className="font-semibold mb-3">Current Working Weights</div>
         {ALL_COMPOUND_IDS.map(id => {
           const config = EXERCISES[id];
@@ -2346,6 +2404,7 @@ function ProgressView({ history, dup, prs, bwHistory, measurements, selEx, setSe
         </div>
       )}
 
+      <div id="sec-body" className="scroll-mt-4"></div>
       {/* Bodyweight Trend */}
       {bwHistory.length >= 2 && (
         <div className="bg-gray-900 rounded-2xl p-4 border border-gray-800">
@@ -2522,7 +2581,7 @@ function ProgressView({ history, dup, prs, bwHistory, measurements, selEx, setSe
       </div>
 
       {/* Export / Import */}
-      <div className="bg-gray-900 rounded-2xl p-4 border border-gray-800 space-y-3">
+      <div id="sec-data" className="bg-gray-900 rounded-2xl p-4 border border-gray-800 space-y-3 scroll-mt-4">
         <div className="font-semibold mb-1">Data Management</div>
         <div className="text-xs text-gray-500">Full backup of sessions, weights and bodyweight.</div>
         <button onClick={onExport}
@@ -2574,9 +2633,8 @@ export default function App() {
   const [editingSession, setEditingSession] = useState(null);
   const [showImport, setShowImport] = useState(false);
   const [showMeasurements, setShowMeasurements] = useState(false);
-  const [confirmSave, setConfirmSave] = useState(false);
-  const [categoryWarn, setCategoryWarn] = useState(false);
-  const [uncheckedWarn, setUncheckedWarn] = useState(null);
+  const [saveSummary, setSaveSummary] = useState(null);
+  const [appAlert, setAppAlert] = useState(null);
   const timerRef = useRef();
 
   // Sunday BW prompt
@@ -2798,17 +2856,7 @@ export default function App() {
         return;
       }
 
-      // Finding D: guard against ghost sessions (compound session, nothing completed, very short).
-      const anyCompleted = (session.exercises || []).some(ex => (ex.sets || []).some(st => st.completed));
-      if (!anyCompleted && duration < 20) {
-        const discard = confirm("This session has no completed sets and is under 20 minutes. Discard it instead of saving?");
-        if (discard) {
-          clearActiveSession();
-          setSession(null);
-          setView("home");
-          return;
-        }
-      }
+      // Ghost-session handling now lives in the unified save summary dialog (Item 1).
 
       // Deload session: save to history for the record, but do NOT run progression
       // or overwrite working weights. Working weight is preserved for next week.
@@ -2854,7 +2902,7 @@ export default function App() {
       }
     } catch (err) {
       console.error("saveSession failed:", err);
-      alert("Save failed: " + (err?.message || "unknown error") + "\n\nYour session is still active. Screenshot this and report it.");
+      setAppAlert("Save failed: " + (err?.message || "unknown error") + ". Your session is still active — nothing was lost.");
     }
   }
 
@@ -2954,7 +3002,7 @@ export default function App() {
       {/* Modals */}
       {showTimer && <RestTimer defaultSecs={restSecs} onClose={() => setShowTimer(false)} />}
       {showPlates && session && <PlateCalculator exercises={session.exercises} onClose={() => setShowPlates(false)} />}
-      {showBW && <BodyweightModal onSave={(w) => { saveBW(w); setShowBW(false); }} onClose={() => setShowBW(false)} lastWeight={bwHistory[bwHistory.length - 1]?.weight} />}
+      {showBW && <BodyweightModal onSave={(w) => { const r = saveBW(w); if (r && r.ok) setShowBW(false); return r; }} onClose={() => setShowBW(false)} lastWeight={bwHistory[bwHistory.length - 1]?.weight} />}
       {showMeasurements && <MeasurementsModal onSave={(entry) => { saveMeasurements(entry); setShowMeasurements(false); }} onClose={() => setShowMeasurements(false)} lastEntry={measurements[measurements.length - 1]} />}
       {showAccPicker && <AccessoryPicker accItems={accItems} lastDone={lastDone} onAdd={addAccessory} onClose={() => setShowAccPicker(false)} />}
       {showTemplatePicker && <AccessoryTemplatePicker templates={customTemplates} onSelect={loadAccessoryTemplate} onClose={() => setShowTemplatePicker(false)} />}
@@ -2979,6 +3027,72 @@ export default function App() {
         />
       )}
 
+      {/* Item 1: unified save summary — one dialog instead of three stacked */}
+      {saveSummary && (
+        <div className="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50 p-6">
+          <div className="bg-gray-900 rounded-3xl p-6 w-full max-w-sm border border-gray-700">
+            <div className="font-bold text-lg text-white mb-1">Complete session?</div>
+            <div className="text-sm text-gray-400 mb-4">{formatSeconds(saveSummary.elapsed)} elapsed</div>
+
+            {(saveSummary.unchecked.length > 0 || saveSummary.incompleteCats.length > 0 || saveSummary.isGhost) && (
+              <div className="space-y-2 mb-4">
+                {saveSummary.isGhost && (
+                  <div className="flex items-start gap-2 text-xs bg-red-950 bg-opacity-40 border border-red-900 rounded-lg px-3 py-2 text-red-300">
+                    <span>⚠</span><span>No sets are marked complete. You probably want to discard this instead of saving.</span>
+                  </div>
+                )}
+                {saveSummary.unchecked.length > 0 && (
+                  <div className="flex items-start gap-2 text-xs bg-gray-800 rounded-lg px-3 py-2 text-gray-300">
+                    <span className="text-amber-400">•</span>
+                    <span>{saveSummary.unchecked.length} set{saveSummary.unchecked.length > 1 ? "s have" : " has"} reps typed but aren't checked — they won't count unless marked done.</span>
+                  </div>
+                )}
+                {saveSummary.incompleteCats.length > 0 && (
+                  <div className="flex items-start gap-2 text-xs bg-gray-800 rounded-lg px-3 py-2 text-gray-300">
+                    <span className="text-amber-400">•</span>
+                    <span>Incomplete categories: {saveSummary.incompleteCats.join(", ")}.</span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="space-y-2">
+              {saveSummary.unchecked.length > 0 && (
+                <button onClick={() => {
+                  setSession(prev => ({
+                    ...prev,
+                    exercises: prev.exercises.map(ex => ({
+                      ...ex,
+                      sets: ex.sets.map(st => (!st.completed && st.reps && parseFloat(st.reps) > 0) ? { ...st, completed: true } : st),
+                    })),
+                  }));
+                  setSaveSummary(null);
+                  setTimeout(() => saveSession(), 60);
+                }} className="w-full bg-green-700 text-white font-semibold py-3 rounded-xl text-sm">
+                  Check those sets & save
+                </button>
+              )}
+              <button onClick={() => { setSaveSummary(null); saveSession(); }}
+                className={`w-full font-semibold py-3 rounded-xl text-sm ${saveSummary.unchecked.length > 0 ? "bg-gray-700 text-gray-200" : "bg-navy text-navy-light"}`}>
+                {saveSummary.isGhost ? "Save anyway" : "Save session"}
+              </button>
+              {saveSummary.isGhost && (
+                <button onClick={() => { setSaveSummary(null); clearActiveSession(); setSession(null); setView("home"); }}
+                  className="w-full bg-red-800 text-white font-semibold py-3 rounded-xl text-sm">
+                  Discard session
+                </button>
+              )}
+              <button onClick={() => setSaveSummary(null)} className="w-full bg-gray-800 text-gray-400 font-semibold py-3 rounded-xl text-sm">
+                Go back
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Item 2: styled alert replaces native alert() */}
+      {appAlert && <AlertDialog message={appAlert} onClose={() => setAppAlert(null)} />}
+
       {/* Navigation guard */}
       {navGuard && (
         <ConfirmDialog
@@ -2988,72 +3102,6 @@ export default function App() {
           danger
           onConfirm={() => { setSession(null); clearActiveSession(); setView(navGuard); setNavGuard(null); }}
           onCancel={() => setNavGuard(null)}
-        />
-      )}
-
-      {uncheckedWarn && (
-        <div className="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50 p-6">
-          <div className="bg-gray-900 rounded-3xl p-6 w-full max-w-sm border border-gray-700">
-            <div className="font-bold text-white mb-2">Unchecked sets</div>
-            <div className="text-sm text-gray-400 mb-4">
-              {uncheckedWarn.length} set{uncheckedWarn.length > 1 ? "s have" : " has"} reps entered but {uncheckedWarn.length > 1 ? "aren't" : "isn't"} marked done. These won't count toward progression. What do you want to do?
-            </div>
-            <div className="space-y-2">
-              <button onClick={() => {
-                // Mark all unchecked-with-reps sets complete, then continue the save flow.
-                setSession(prev => {
-                  const exercises = prev.exercises.map(ex => ({
-                    ...ex,
-                    sets: ex.sets.map(st => (!st.completed && st.reps && parseFloat(st.reps) > 0) ? { ...st, completed: true } : st),
-                  }));
-                  return { ...prev, exercises };
-                });
-                setUncheckedWarn(null);
-                setTimeout(() => {
-                  if (session.workout === "ACC") { setConfirmSave(true); return; }
-                  const reqCats = getRequiredCategories(session.workout);
-                  const catStatus = checkCategoryCompletion(reqCats, accItems);
-                  if (catStatus.some(c => !c.completed)) setCategoryWarn(true);
-                  else setConfirmSave(true);
-                }, 50);
-              }} className="w-full bg-green-700 text-white font-semibold py-3 rounded-xl text-sm">
-                Mark them done & continue
-              </button>
-              <button onClick={() => {
-                setUncheckedWarn(null);
-                if (session.workout === "ACC") { setConfirmSave(true); return; }
-                const reqCats = getRequiredCategories(session.workout);
-                const catStatus = checkCategoryCompletion(reqCats, accItems);
-                if (catStatus.some(c => !c.completed)) setCategoryWarn(true);
-                else setConfirmSave(true);
-              }} className="w-full bg-gray-700 text-gray-200 font-semibold py-3 rounded-xl text-sm">
-                Leave them unchecked (discard those reps)
-              </button>
-              <button onClick={() => setUncheckedWarn(null)} className="w-full bg-gray-800 text-gray-400 font-semibold py-3 rounded-xl text-sm">
-                Go back
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {categoryWarn && (
-        <ConfirmDialog
-          title="Incomplete Categories"
-          message="You haven't completed all recommended accessory categories for this workout. Complete anyway?"
-          confirmLabel="Save Anyway"
-          onConfirm={() => { setCategoryWarn(false); setConfirmSave(true); }}
-          onCancel={() => setCategoryWarn(false)}
-        />
-      )}
-
-      {confirmSave && (
-        <ConfirmDialog
-          title="Complete Session?"
-          message={`Save this workout and apply progression? (${formatSeconds(elapsed)} elapsed)`}
-          confirmLabel="Save"
-          onConfirm={() => { setConfirmSave(false); saveSession(); }}
-          onCancel={() => setConfirmSave(false)}
         />
       )}
 
@@ -3140,35 +3188,32 @@ export default function App() {
           prs={prs} emphasisOvr={emphasisOvr} settings={settings}
           accItems={accItems} setAccItems={setAccItems}
           rpe={rpe} setRpe={setRpe} note={note} setNote={setNote}
-          suggested={suggested} lastDone={lastDone} accLastValues={accLastValues} customTemplates={customTemplates}
+          suggested={suggested} lastDone={lastDone} accLastValues={accLastValues} onNotify={(msg) => setAppAlert(msg)} customTemplates={customTemplates}
           onToggleOverride={toggleOverride} onSwapExercise={swapExercise}
           onSave={() => {
-            if (session) {
-              // Finding B: catch sets that have reps typed but were never checked off.
-              const uncheckedWithReps = [];
-              (session.exercises || []).forEach(ex => {
-                ex.sets.forEach((st, i) => {
-                  if (!st.completed && st.reps && parseFloat(st.reps) > 0) {
-                    uncheckedWithReps.push({ exId: ex.id, name: ex.name, setIdx: i });
-                  }
-                });
+            if (!session) return;
+            // Item 1: compute one summary instead of stacking dialogs.
+            const uncheckedWithReps = [];
+            (session.exercises || []).forEach(ex => {
+              ex.sets.forEach((st, i) => {
+                if (!st.completed && st.reps && parseFloat(st.reps) > 0) {
+                  uncheckedWithReps.push({ exId: ex.id, name: ex.name, setIdx: i });
+                }
               });
-              if (uncheckedWithReps.length > 0) {
-                setUncheckedWarn(uncheckedWithReps);
-                return;
-              }
-              if (session.workout === "ACC") {
-                setConfirmSave(true); // accessory sessions have no required categories
-                return;
-              }
+            });
+            let incompleteCats = [];
+            if (session.workout !== "ACC") {
               const reqCats = getRequiredCategories(session.workout);
               const catStatus = checkCategoryCompletion(reqCats, accItems);
-              if (catStatus.some(c => !c.completed)) {
-                setCategoryWarn(true);
-              } else {
-                setConfirmSave(true);
-              }
+              incompleteCats = catStatus.filter(c => !c.completed).map(c => c.label);
             }
+            const anyCompleted = (session.exercises || []).some(ex => (ex.sets || []).some(st => st.completed));
+            setSaveSummary({
+              unchecked: uncheckedWithReps,
+              incompleteCats,
+              elapsed,
+              isGhost: session.workout !== "ACC" && !anyCompleted,
+            });
           }}
           onShowPlates={() => setShowPlates(true)}
           onShowTimer={(secs) => { setRestSecs(secs); setShowTimer(true); }}
