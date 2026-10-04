@@ -1352,6 +1352,272 @@ function CardioLogModal({ onSave, onClose, lastByModality }) {
   );
 }
 
+// A simple wall-clock countdown used inside the guided test. Calls onDone once at zero.
+function CountdownTimer({ seconds, onDone, label, cueAt, cueText }) {
+  const endRef = useRef(Date.now() + seconds * 1000);
+  const [remaining, setRemaining] = useState(seconds);
+  const firedRef = useRef(false);
+  useEffect(() => {
+    let raf;
+    function tick() {
+      const left = Math.max(0, Math.ceil((endRef.current - Date.now()) / 1000));
+      setRemaining(left);
+      if (left > 0) raf = requestAnimationFrame(tick);
+      else if (!firedRef.current) { firedRef.current = true; onDone && onDone(); }
+    }
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, []);
+  const mins = Math.floor(remaining / 60);
+  const secs = remaining % 60;
+  const showCue = cueAt != null && remaining <= (seconds - cueAt) && remaining > 0;
+  return (
+    <div className="text-center">
+      {label && <div className="text-sm text-gray-400 mb-2">{label}</div>}
+      <div className="text-5xl font-bold text-white tabular-nums">{mins}:{secs.toString().padStart(2, "0")}</div>
+      {showCue && cueText && <div className="text-sm text-teal-300 mt-3 font-semibold">{cueText}</div>}
+    </div>
+  );
+}
+
+const CARDIO_TEST_INSTRUCTIONS_KEY = "wt_cardio_instr_collapsed";
+
+function CardioTestFlow({ profile, cardio, onSaveProfile, onSaveResult, onClose }) {
+  const calibrated = !!profile.protocol;
+  // Stages: instructions → (calibrate | test). Calibration sub-stages handled inline.
+  const [stage, setStage] = useState(calibrated ? "ready" : "calibrate_intro");
+
+  // Instruction panel: expanded by default until 3 tests done, then remembered.
+  const testCount = (cardio || []).filter(c => c.type === "cardio_test").length;
+  const [instrOpen, setInstrOpen] = useState(() => {
+    const stored = localStorage.getItem(CARDIO_TEST_INSTRUCTIONS_KEY);
+    if (stored != null) return stored === "open";
+    return testCount < 3;
+  });
+  function toggleInstr() {
+    const next = !instrOpen;
+    setInstrOpen(next);
+    localStorage.setItem(CARDIO_TEST_INSTRUCTIONS_KEY, next ? "open" : "closed");
+  }
+
+  // Calibration working state
+  const [calSpeed, setCalSpeed] = useState(3.5);
+  const [calGrade, setCalGrade] = useState(5);
+  const [calHR, setCalHR] = useState("");
+  const [calError, setCalError] = useState("");
+
+  // Test working state
+  const [testHR, setTestHR] = useState("");
+  const [recoveryHR, setRecoveryHR] = useState("");
+  const [testError, setTestError] = useState("");
+
+  const lastTest = (cardio || []).filter(c => c.type === "cardio_test").slice(-1)[0];
+  const firstTest = (cardio || []).filter(c => c.type === "cardio_test")[0];
+
+  // ---- CALIBRATION ----
+  function runCalibrationCheck() {
+    const hr = parseFloat(calHR);
+    if (!(hr >= 60 && hr <= 200)) { setCalError("Enter a heart rate (60-200)."); return; }
+    if (hr < 128) { setCalGrade(g => g + 2); setCalHR(""); setCalError("Under 128 bpm. Grade raised 2%. Run 6 more minutes and re-check."); return; }
+    if (hr > 146) { setCalGrade(g => Math.max(0, g - 2)); setCalHR(""); setCalError("Over 146 bpm. Grade lowered 2%. Run 6 more minutes and re-check."); return; }
+    // In band: lock it
+    onSaveProfile({ ...profile, protocol: { speed: calSpeed, grade: calGrade, calibratedDate: new Date().toISOString() } });
+    setStage("calibrated_done");
+  }
+
+  // ---- TEST ----
+  function finishTest() {
+    const t = parseFloat(testHR), r = parseFloat(recoveryHR);
+    if (!(t >= 60 && t <= 200)) { setTestError("Test HR must be 60-200."); return; }
+    if (!(r >= 60 && r <= 200)) { setTestError("Recovery HR must be 60-200."); return; }
+    onSaveResult({
+      type: "cardio_test",
+      testHR: t,
+      recoveryHR: r,
+      delta: t - r,
+      protocol: { ...profile.protocol },
+    });
+    setStage("result");
+  }
+
+  return (
+    <div className="fixed inset-0 bg-gray-950 z-50 overflow-y-auto">
+      <div className="p-4 max-w-md mx-auto">
+        <div className="flex justify-between items-center mb-4">
+          <div className="font-bold text-lg text-white">Fixed-Workload Test</div>
+          <button onClick={onClose} className="text-gray-400 text-2xl leading-none w-8 h-8">✕</button>
+        </div>
+
+        {/* Instruction panel */}
+        <div className="bg-gray-900 rounded-2xl border border-gray-800 mb-4">
+          <button onClick={toggleInstr} className="w-full flex justify-between items-center p-4">
+            <span className="font-semibold text-sm text-white">How to run this test</span>
+            <span className="text-gray-400">{instrOpen ? "▲" : "▼"}</span>
+          </button>
+          {instrOpen && (
+            <div className="px-4 pb-4 text-xs text-gray-400 space-y-3">
+              <div>
+                <div className="font-semibold text-gray-200 mb-1">Before you start</div>
+                <div>Run this test under the same conditions every time. Differences in these will move your heart rate more than a month of training will.</div>
+                <ol className="list-decimal ml-4 mt-1 space-y-0.5">
+                  <li>Same time of day, within about two hours.</li>
+                  <li>No lifting session in the previous 24 hours.</li>
+                  <li>No caffeine for 3 hours beforehand.</li>
+                  <li>Not fasted and not immediately after a large meal. Two to three hours after eating is ideal.</li>
+                  <li>Normally hydrated. Dehydration raises heart rate at any given workload.</li>
+                  <li>Wear the chest strap if you have one. Wrist heart rate is less reliable at steady effort.</li>
+                  <li>Skip the test if you are ill, sleep-deprived or unusually sore. A bad day produces a bad number, not a useful one.</li>
+                </ol>
+              </div>
+              <div>
+                <div className="font-semibold text-gray-200 mb-1">The test</div>
+                <ol className="list-decimal ml-4 space-y-0.5">
+                  <li>Warm up 5 minutes at an easy walk.</li>
+                  <li>Set the treadmill to your stored speed and grade. Do not change them.</li>
+                  <li>Hold that workload for 10 minutes without touching the handrails.</li>
+                  <li>At the 8 minute mark, note your heart rate. Watch it until 10 minutes and enter the average of what you see over those final two minutes.</li>
+                  <li>Stop the treadmill and stand still. Do not walk it off and do not sit down.</li>
+                  <li>After exactly 60 seconds, enter your heart rate again.</li>
+                </ol>
+              </div>
+              <div>
+                <div className="font-semibold text-gray-200 mb-1">What the numbers mean</div>
+                <div>The first number is your heart rate at a fixed workload. Lower over time means your conditioning improved, because the same work now costs you less. A drop of 5 to 10 beats over 12 weeks is a meaningful change.</div>
+                <div className="mt-1">The second number is your one-minute heart rate recovery. Higher over time means improvement. This one moves faster than the first, so it is the earlier signal that something is working.</div>
+                <div className="mt-1">Expect noise of about 3 to 5 beats between tests from sleep, hydration and stress alone. Read the trend across three or more tests, not the gap between any two.</div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* CALIBRATION FLOW */}
+        {!calibrated && (
+          <div className="bg-gray-900 rounded-2xl border border-gray-800 p-4 space-y-4">
+            <div className="font-semibold text-white">First-run calibration</div>
+            <div className="text-sm text-gray-400">
+              We need to find a treadmill setting that puts you at 128-146 bpm (70-80% of your max). This is a one-time setup, then it's locked.
+            </div>
+            <div className="bg-gray-800 rounded-xl p-3 text-center">
+              <div className="text-xs text-gray-500 mb-1">Set the treadmill to</div>
+              <div className="text-lg font-bold text-white">{calSpeed} mph · {calGrade}% grade</div>
+            </div>
+            <div className="text-sm text-gray-300">Run 6 minutes at this setting, then enter your heart rate:</div>
+            <div className="flex items-center gap-3">
+              <input type="number" inputMode="numeric" placeholder="bpm" value={calHR}
+                onChange={e => { setCalHR(e.target.value); setCalError(""); }}
+                className="flex-1 bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-center text-lg font-bold text-white outline-none" />
+              <span className="text-xs text-gray-500">bpm</span>
+            </div>
+            {calError && <div className="text-xs text-amber-400">{calError}</div>}
+            <button onClick={runCalibrationCheck} className="w-full bg-teal-700 text-white font-semibold py-3 rounded-xl text-sm">Check heart rate</button>
+          </div>
+        )}
+
+        {stage === "calibrated_done" && (
+          <div className="bg-teal-950 bg-opacity-40 border border-teal-800 rounded-2xl p-4 mt-4 text-center space-y-2">
+            <div className="text-2xl">✓</div>
+            <div className="font-semibold text-teal-200">Protocol locked</div>
+            <div className="text-sm text-teal-300">{profile.protocol?.speed} mph · {profile.protocol?.grade}% grade. This is now your fixed workload for every test.</div>
+            <button onClick={() => setStage("ready")} className="w-full bg-teal-700 text-white font-semibold py-3 rounded-xl text-sm mt-2">Continue</button>
+          </div>
+        )}
+
+        {/* TEST FLOW (only when calibrated) */}
+        {calibrated && stage === "ready" && (
+          <div className="bg-gray-900 rounded-2xl border border-gray-800 p-4 space-y-4">
+            <div className="bg-gray-800 rounded-xl p-3 text-center">
+              <div className="text-xs text-gray-500 mb-1">Your locked protocol</div>
+              <div className="text-lg font-bold text-white">{profile.protocol.speed} mph · {profile.protocol.grade}% grade · 10 min</div>
+              <button onClick={() => {
+                if (confirm("Changing the protocol resets your test history. Past results will not be comparable. Continue?")) {
+                  onSaveProfile({ ...profile, protocol: null });
+                  setStage("calibrate_intro");
+                }
+              }} className="text-xs text-gray-500 underline mt-2">Change protocol</button>
+            </div>
+            <button onClick={() => setStage("warmup")} className="w-full bg-gray-700 text-white font-semibold py-3 rounded-xl text-sm">Start with 5-min warmup</button>
+            <button onClick={() => setStage("run")} className="w-full bg-teal-700 text-white font-semibold py-3 rounded-xl text-sm">Skip warmup, start test</button>
+          </div>
+        )}
+
+        {calibrated && stage === "warmup" && (
+          <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6 mt-4">
+            <CountdownTimer seconds={300} label="Warmup — easy walk" onDone={() => setStage("run")} />
+            <button onClick={() => setStage("run")} className="w-full bg-gray-700 text-gray-200 font-semibold py-2.5 rounded-xl text-sm mt-4">Skip to test</button>
+          </div>
+        )}
+
+        {calibrated && stage === "run" && (
+          <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6 mt-4">
+            <div className="text-center text-sm text-gray-400 mb-3">{profile.protocol.speed} mph · {profile.protocol.grade}% grade</div>
+            <CountdownTimer seconds={600} label="Hold the workload — 10 min" cueAt={480} cueText="At 8:00 — start watching your HR now" onDone={() => setStage("enter_test_hr")} />
+          </div>
+        )}
+
+        {calibrated && stage === "enter_test_hr" && (
+          <div className="bg-gray-900 rounded-2xl border border-gray-800 p-4 mt-4 space-y-3">
+            <div className="font-semibold text-white">Average HR, minutes 8-10</div>
+            <div className="text-sm text-gray-400">Enter the average heart rate you saw over the final two minutes.</div>
+            <div className="flex items-center gap-3">
+              <input type="number" inputMode="numeric" placeholder="bpm" value={testHR}
+                onChange={e => { setTestHR(e.target.value); setTestError(""); }}
+                className="flex-1 bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-center text-lg font-bold text-white outline-none" />
+              <span className="text-xs text-gray-500">bpm</span>
+            </div>
+            {testError && <div className="text-xs text-red-400">{testError}</div>}
+            <button onClick={() => {
+              const t = parseFloat(testHR);
+              if (!(t >= 60 && t <= 200)) { setTestError("Test HR must be 60-200."); return; }
+              setStage("recovery");
+            }} className="w-full bg-teal-700 text-white font-semibold py-3 rounded-xl text-sm">Stop treadmill, start recovery</button>
+          </div>
+        )}
+
+        {calibrated && stage === "recovery" && (
+          <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6 mt-4">
+            <CountdownTimer seconds={60} label="Stand still — 60 sec recovery" onDone={() => setStage("enter_recovery_hr")} />
+          </div>
+        )}
+
+        {calibrated && stage === "enter_recovery_hr" && (
+          <div className="bg-gray-900 rounded-2xl border border-gray-800 p-4 mt-4 space-y-3">
+            <div className="font-semibold text-white">HR after 60 seconds</div>
+            <div className="flex items-center gap-3">
+              <input type="number" inputMode="numeric" placeholder="bpm" value={recoveryHR}
+                onChange={e => { setRecoveryHR(e.target.value); setTestError(""); }}
+                className="flex-1 bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-center text-lg font-bold text-white outline-none" />
+              <span className="text-xs text-gray-500">bpm</span>
+            </div>
+            {testError && <div className="text-xs text-red-400">{testError}</div>}
+            <button onClick={finishTest} className="w-full bg-teal-700 text-white font-semibold py-3 rounded-xl text-sm">Save result</button>
+          </div>
+        )}
+
+        {stage === "result" && (
+          <div className="bg-gray-900 rounded-2xl border border-teal-800 p-4 mt-4 space-y-3">
+            <div className="text-2xl text-center">✓</div>
+            <div className="font-semibold text-white text-center">Test saved</div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="bg-gray-800 rounded-xl p-3 text-center">
+                <div className="text-xs text-gray-500">Workload HR</div>
+                <div className="text-xl font-bold text-white">{testHR}</div>
+                {lastTest && <div className="text-xs text-gray-500">prev {lastTest.testHR} · first {firstTest?.testHR}</div>}
+              </div>
+              <div className="bg-gray-800 rounded-xl p-3 text-center">
+                <div className="text-xs text-gray-500">1-min recovery</div>
+                <div className="text-xl font-bold text-white">{parseFloat(testHR) - parseFloat(recoveryHR)}</div>
+                {lastTest && <div className="text-xs text-gray-500">prev {lastTest.delta}</div>}
+              </div>
+            </div>
+            <div className="text-xs text-gray-500 text-center">Lower workload HR and higher recovery both mean improvement. Read the trend across 3+ tests.</div>
+            <button onClick={onClose} className="w-full bg-teal-700 text-white font-semibold py-3 rounded-xl text-sm">Done</button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function MeasurementsModal({ onSave, onClose, lastEntry }) {
   // P2-3: do NOT prefill with last values (that produced fake "unchanged" entries).
   // Fields start empty; last value shows only as a grey placeholder hint.
@@ -1690,7 +1956,7 @@ function ChartTooltip({ active, payload }) {
    VIEW: Home
    ═══════════════════════════════════════════ */
 
-function HomeView({ dup, history, bwHistory, nextWorkout, prs, streak, missed, lastGap, fatigue, wEmphasis, setWEmphasis, onStartSession, onStartAccessory, onLogBW, onLogMeasurements, onLogCardio, onCardioTest }) {
+function HomeView({ dup, history, bwHistory, cardio, nextWorkout, prs, streak, missed, lastGap, fatigue, wEmphasis, setWEmphasis, onStartSession, onStartAccessory, onLogBW, onLogMeasurements, onLogCardio, onCardioTest }) {
   const weeklyVol = useMemo(() => getWeeklyVolume(history), [history]);
   const [deloadArmed, setDeloadArmed] = useState({});
   const priorityPillars = useMemo(() => getPriorityPillars(history), [history]);
@@ -1710,6 +1976,15 @@ function HomeView({ dup, history, bwHistory, nextWorkout, prs, streak, missed, l
       </div>
 
       {missed && <div className="bg-yellow-950 border border-yellow-800 rounded-xl p-3 text-sm text-yellow-300">{lastGap} days since last session.</div>}
+      {(() => {
+        const tests = (cardio || []).filter(c => c.type === "cardio_test");
+        if (tests.length === 0) return null;
+        const daysSince = daysSinceDate(tests[tests.length - 1].date);
+        if (daysSince >= CARDIO_TEST_REMINDER_DAYS) {
+          return <div className="bg-teal-950 border border-teal-800 rounded-xl p-3 text-sm text-teal-300">Fixed-workload test due ({daysSince} days since last). Tap "Run the test" when rested.</div>;
+        }
+        return null;
+      })()}
       {fatigue && <div className="bg-red-950 border border-red-800 rounded-xl p-3 text-sm text-red-300">RPE 8+ for {FATIGUE_WINDOW - 1} straight sessions. Consider a lighter day.</div>}
 
       {/* Priority chip row — lowest-coverage pillars over 14 days. Hidden when all on target. */}
@@ -2827,6 +3102,87 @@ function ProgressView({ history, dup, prs, bwHistory, measurements, cardio, selE
         </div>
       )}
 
+      {/* Cardio charts */}
+      {(() => {
+        const tests = (cardio || []).filter(c => c.type === "cardio_test");
+        const sessions = (cardio || []).filter(c => c.type === "cardio_session");
+        const vo2Entries = (cardio || []).filter(c => c.type === "vo2max");
+        if (tests.length === 0 && sessions.length === 0) return null;
+        const proto = tests[tests.length - 1]?.protocol;
+        // Weekly deliberate cardio minutes (last 8 weeks)
+        const weeklyMins = {};
+        sessions.forEach(s => {
+          const d = new Date(s.date);
+          const wk = `${d.getFullYear()}-W${Math.ceil(((d - new Date(d.getFullYear(),0,1))/MS_PER_DAY + 1)/7)}`;
+          weeklyMins[wk] = (weeklyMins[wk] || 0) + (s.duration || 0);
+        });
+        const weeklyData = Object.entries(weeklyMins).slice(-8).map(([wk, min]) => ({ wk: wk.split("-W")[1], min }));
+        return (
+          <>
+            {tests.length >= 2 && (
+              <div id="sec-cardio" className="bg-gray-900 rounded-2xl p-4 border border-gray-800 scroll-mt-4">
+                <div className="font-semibold mb-1">Fixed-Workload HR</div>
+                <div className="text-xs text-gray-500 mb-3">{proto ? `${proto.speed} mph · ${proto.grade}% grade` : ""} · lower is better</div>
+                <ResponsiveContainer width="100%" height={110}>
+                  <LineChart data={tests.map(t => ({ date: new Date(t.date).toLocaleDateString("en-US",{month:"short",day:"numeric"}), hr: t.testHR }))}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
+                    <XAxis dataKey="date" tick={{ fontSize: 10, fill: "#6b7280" }} />
+                    <YAxis tick={{ fontSize: 10, fill: "#6b7280" }} domain={["dataMin - 5", "dataMax + 5"]} />
+                    <Tooltip contentStyle={{ background: "#1f2937", border: "none", borderRadius: 8, fontSize: 12 }} />
+                    <Line type="monotone" dataKey="hr" stroke="#14b8a6" strokeWidth={2} dot={{ r: 3, fill: "#14b8a6" }} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+            {tests.length >= 2 && (
+              <div className="bg-gray-900 rounded-2xl p-4 border border-gray-800">
+                <div className="font-semibold mb-1">1-Minute HR Recovery</div>
+                <div className="text-xs text-gray-500 mb-3">Higher is better · earlier signal than workload HR</div>
+                <ResponsiveContainer width="100%" height={110}>
+                  <LineChart data={tests.map(t => ({ date: new Date(t.date).toLocaleDateString("en-US",{month:"short",day:"numeric"}), rec: t.delta }))}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
+                    <XAxis dataKey="date" tick={{ fontSize: 10, fill: "#6b7280" }} />
+                    <YAxis tick={{ fontSize: 10, fill: "#6b7280" }} domain={["dataMin - 3", "dataMax + 3"]} />
+                    <Tooltip contentStyle={{ background: "#1f2937", border: "none", borderRadius: 8, fontSize: 12 }} />
+                    <Line type="monotone" dataKey="rec" stroke="#2dd4bf" strokeWidth={2} dot={{ r: 3, fill: "#2dd4bf" }} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+            {weeklyData.length >= 2 && (
+              <div className="bg-gray-900 rounded-2xl p-4 border border-gray-800">
+                <div className="font-semibold mb-1">Deliberate Cardio Minutes</div>
+                <div className="text-xs text-gray-500 mb-3">Logged sessions only — dog walks not included</div>
+                <ResponsiveContainer width="100%" height={110}>
+                  <LineChart data={weeklyData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
+                    <XAxis dataKey="wk" tick={{ fontSize: 10, fill: "#6b7280" }} label={{ value: "week", position: "insideBottom", fontSize: 9, fill: "#4b5563" }} />
+                    <YAxis tick={{ fontSize: 10, fill: "#6b7280" }} />
+                    <Tooltip contentStyle={{ background: "#1f2937", border: "none", borderRadius: 8, fontSize: 12 }} />
+                    <Line type="monotone" dataKey="min" stroke="#14b8a6" strokeWidth={2} dot={{ r: 3, fill: "#14b8a6" }} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+            {vo2Entries.length >= 2 && (
+              <div className="bg-gray-900 rounded-2xl p-4 border border-gray-800">
+                <div className="font-semibold mb-1">Garmin VO2max Estimate</div>
+                <div className="text-xs text-gray-500 mb-3">Manually entered · treadmill running only · trend not target</div>
+                <ResponsiveContainer width="100%" height={110}>
+                  <LineChart data={vo2Entries.map(v => ({ date: new Date(v.date).toLocaleDateString("en-US",{month:"short",day:"numeric"}), vo2: v.value }))}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
+                    <XAxis dataKey="date" tick={{ fontSize: 10, fill: "#6b7280" }} />
+                    <YAxis tick={{ fontSize: 10, fill: "#6b7280" }} domain={["dataMin - 2", "dataMax + 2"]} />
+                    <Tooltip contentStyle={{ background: "#1f2937", border: "none", borderRadius: 8, fontSize: 12 }} />
+                    <Line type="monotone" dataKey="vo2" stroke="#f59e0b" strokeWidth={2} dot={{ r: 3, fill: "#f59e0b" }} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+          </>
+        );
+      })()}
+
       {/* Accessory Frequency */}
       <div className="bg-gray-900 rounded-2xl p-4 border border-gray-800">
         <div className="font-semibold mb-3">Accessory Frequency</div>
@@ -2948,6 +3304,7 @@ export default function App() {
   const [showPlates, setShowPlates] = useState(false);
   const [showBW, setShowBW] = useState(false);
   const [showCardioLog, setShowCardioLog] = useState(false);
+  const [showCardioTest, setShowCardioTest] = useState(false);
   const [selEx, setSelEx] = useState(ALL_COMPOUND_IDS[0]);
   const [rpe, setRpe] = useState(null);
   const [note, setNote] = useState("");
@@ -3349,6 +3706,14 @@ export default function App() {
           return byMod;
         })()}
       />}
+
+      {showCardioTest && <CardioTestFlow
+        profile={cardioProfile}
+        cardio={cardio}
+        onSaveProfile={saveCardioProfile}
+        onSaveResult={(result) => { saveCardioEntry(result); }}
+        onClose={() => setShowCardioTest(false)}
+      />}
       {showMeasurements && <MeasurementsModal onSave={(entry) => { saveMeasurements(entry); setShowMeasurements(false); }} onClose={() => setShowMeasurements(false)} lastEntry={measurements[measurements.length - 1]} />}
       {showAccPicker && <AccessoryPicker accItems={accItems} lastDone={lastDone} onAdd={addAccessory} onClose={() => setShowAccPicker(false)} />}
       {showTemplatePicker && <AccessoryTemplatePicker templates={customTemplates} onSelect={loadAccessoryTemplate} onClose={() => setShowTemplatePicker(false)} />}
@@ -3520,11 +3885,11 @@ export default function App() {
       {/* Views */}
       {view === "home" && (
         <HomeView
-          dup={dup} history={history} bwHistory={bwHistory} nextWorkout={nextWorkout}
+          dup={dup} history={history} bwHistory={bwHistory} cardio={cardio} nextWorkout={nextWorkout}
           prs={prs} streak={streak} missed={missed} lastGap={lastGap} fatigue={fatigue}
           wEmphasis={wEmphasis} setWEmphasis={setWEmphasis}
           onStartSession={startSession} onStartAccessory={startAccessorySession} onLogBW={() => setShowBW(true)}
-          onLogCardio={() => setShowCardioLog(true)} onCardioTest={() => setAppAlert("The guided test is coming in the next update.")}
+          onLogCardio={() => setShowCardioLog(true)} onCardioTest={() => setShowCardioTest(true)}
           onLogMeasurements={() => setShowMeasurements(true)}
         />
       )}
