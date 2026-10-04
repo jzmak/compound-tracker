@@ -1384,8 +1384,8 @@ const CARDIO_TEST_INSTRUCTIONS_KEY = "wt_cardio_instr_collapsed";
 
 function CardioTestFlow({ profile, cardio, onSaveProfile, onSaveResult, onClose }) {
   const calibrated = !!profile.protocol;
-  // Stages: instructions → (calibrate | test). Calibration sub-stages handled inline.
-  const [stage, setStage] = useState(calibrated ? "ready" : "calibrate_intro");
+  // Stages: instructions → (calibrate | test). Calibration now starts with a mandatory warmup.
+  const [stage, setStage] = useState(calibrated ? "ready" : "cal_warmup");
 
   // Instruction panel: expanded by default until 3 tests done, then remembered.
   const testCount = (cardio || []).filter(c => c.type === "cardio_test").length;
@@ -1400,11 +1400,15 @@ function CardioTestFlow({ profile, cardio, onSaveProfile, onSaveResult, onClose 
     localStorage.setItem(CARDIO_TEST_INSTRUCTIONS_KEY, next ? "open" : "closed");
   }
 
-  // Calibration working state
-  const [calSpeed, setCalSpeed] = useState(3.5);
-  const [calGrade, setCalGrade] = useState(5);
+  // Calibration working state. Life Fitness: grade steps 0.5%, speed steps 0.1 mph.
+  // Start 5.0 mph / 1.0% grade. Cap at 4 stages.
+  const [calSpeed, setCalSpeed] = useState(5.0);
+  const [calGrade, setCalGrade] = useState(1.0);
+  const [calStage, setCalStage] = useState(1);
   const [calHR, setCalHR] = useState("");
   const [calError, setCalError] = useState("");
+
+  const roundStep = (v, step) => Math.round(v / step) * step;
 
   // Test working state
   const [testHR, setTestHR] = useState("");
@@ -1415,14 +1419,43 @@ function CardioTestFlow({ profile, cardio, onSaveProfile, onSaveResult, onClose 
   const firstTest = (cardio || []).filter(c => c.type === "cardio_test")[0];
 
   // ---- CALIBRATION ----
+  function lockProtocol(speed, grade, closest) {
+    onSaveProfile({ ...profile, protocol: {
+      speed: roundStep(speed, 0.1),
+      grade: roundStep(grade, 0.5),
+      calibratedDate: new Date().toISOString(),
+    }});
+    setStage(closest ? "calibrated_closest" : "calibrated_done");
+  }
+
   function runCalibrationCheck() {
     const hr = parseFloat(calHR);
     if (!(hr >= 60 && hr <= 200)) { setCalError("Enter a heart rate (60-200)."); return; }
-    if (hr < 128) { setCalGrade(g => g + 2); setCalHR(""); setCalError("Under 128 bpm. Grade raised 2%. Run 6 more minutes and re-check."); return; }
-    if (hr > 146) { setCalGrade(g => Math.max(0, g - 2)); setCalHR(""); setCalError("Over 146 bpm. Grade lowered 2%. Run 6 more minutes and re-check."); return; }
-    // In band: lock it
-    onSaveProfile({ ...profile, protocol: { speed: calSpeed, grade: calGrade, calibratedDate: new Date().toISOString() } });
-    setStage("calibrated_done");
+
+    // In band → lock
+    if (hr >= 128 && hr <= 146) { lockProtocol(calSpeed, calGrade, false); return; }
+
+    // Out of band and this was the last allowed stage → store closest
+    if (calStage >= 4) { lockProtocol(calSpeed, calGrade, true); return; }
+
+    // Bidirectional two-variable adjustment
+    if (hr < 128) {
+      const ng = roundStep(calGrade + 1.0, 0.5);
+      setCalGrade(ng); setCalHR(""); setCalStage(s => s + 1);
+      setCalError(`Under 128 bpm. Grade raised to ${ng.toFixed(1)}%. Run 5 more minutes and re-check.`);
+      return;
+    }
+    // hr > 146
+    if (calGrade > 0) {
+      const ng = roundStep(Math.max(0, calGrade - 1.0), 0.5);
+      setCalGrade(ng); setCalHR(""); setCalStage(s => s + 1);
+      setCalError(`Over 146 bpm. Grade lowered to ${ng.toFixed(1)}%. Run 5 more minutes and re-check.`);
+      return;
+    }
+    // hr > 146 and grade already at 0 → lower speed 0.3, reset grade to 1.0
+    const ns = roundStep(Math.max(0.5, calSpeed - 0.3), 0.1);
+    setCalSpeed(ns); setCalGrade(1.0); setCalHR(""); setCalStage(s => s + 1);
+    setCalError(`Over 146 bpm at 0% grade. Speed lowered to ${ns.toFixed(1)} mph, grade reset to 1.0%. Run 5 more minutes and re-check.`);
   }
 
   // ---- TEST ----
@@ -1474,7 +1507,7 @@ function CardioTestFlow({ profile, cardio, onSaveProfile, onSaveResult, onClose 
                 <ol className="list-decimal ml-4 space-y-0.5">
                   <li>Warm up 5 minutes at an easy walk.</li>
                   <li>Set the treadmill to your stored speed and grade. Do not change them.</li>
-                  <li>Hold that workload for 10 minutes without touching the handrails.</li>
+                  <li>Run at your stored speed and grade for 10 minutes. Do not touch the handrails and do not change the settings.</li>
                   <li>At the 8 minute mark, note your heart rate. Watch it until 10 minutes and enter the average of what you see over those final two minutes.</li>
                   <li>Stop the treadmill and stand still. Do not walk it off and do not sit down.</li>
                   <li>After exactly 60 seconds, enter your heart rate again.</li>
@@ -1490,18 +1523,33 @@ function CardioTestFlow({ profile, cardio, onSaveProfile, onSaveResult, onClose 
           )}
         </div>
 
-        {/* CALIBRATION FLOW */}
-        {!calibrated && (
+        {/* CALIBRATION: mandatory warmup first */}
+        {!calibrated && stage === "cal_warmup" && (
+          <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6 space-y-4">
+            <div className="font-semibold text-white text-center">First-run calibration</div>
+            <div className="text-sm text-gray-400 text-center">
+              Starting cold inflates your heart rate and miscalibrates the protocol. Warm up 5 minutes at an easy walk first.
+            </div>
+            <CountdownTimer seconds={300} label="Warmup — easy walk" onDone={() => setStage("cal_check")} />
+            <button onClick={() => setStage("cal_check")} className="w-full bg-gray-700 text-gray-200 font-semibold py-2.5 rounded-xl text-sm">Skip warmup (not recommended)</button>
+          </div>
+        )}
+
+        {/* CALIBRATION: stage check loop */}
+        {!calibrated && stage === "cal_check" && (
           <div className="bg-gray-900 rounded-2xl border border-gray-800 p-4 space-y-4">
-            <div className="font-semibold text-white">First-run calibration</div>
+            <div className="flex justify-between items-center">
+              <div className="font-semibold text-white">Calibration</div>
+              <div className="text-xs text-gray-500">Stage {calStage} of 4</div>
+            </div>
             <div className="text-sm text-gray-400">
-              We need to find a treadmill setting that puts you at 128-146 bpm (70-80% of your max). This is a one-time setup, then it's locked.
+              We're finding a treadmill setting that puts you at 128-146 bpm (70-80% of your max). One-time setup, then it's locked.
             </div>
             <div className="bg-gray-800 rounded-xl p-3 text-center">
               <div className="text-xs text-gray-500 mb-1">Set the treadmill to</div>
-              <div className="text-lg font-bold text-white">{calSpeed} mph · {calGrade}% grade</div>
+              <div className="text-lg font-bold text-white">{calSpeed.toFixed(1)} mph · {calGrade.toFixed(1)}% grade</div>
             </div>
-            <div className="text-sm text-gray-300">Run 6 minutes at this setting, then enter your heart rate:</div>
+            <div className="text-sm text-gray-300">Run 5 minutes at this setting, then enter your heart rate:</div>
             <div className="flex items-center gap-3">
               <input type="number" inputMode="numeric" placeholder="bpm" value={calHR}
                 onChange={e => { setCalHR(e.target.value); setCalError(""); }}
@@ -1522,6 +1570,15 @@ function CardioTestFlow({ profile, cardio, onSaveProfile, onSaveResult, onClose 
           </div>
         )}
 
+        {stage === "calibrated_closest" && (
+          <div className="bg-teal-950 bg-opacity-40 border border-teal-800 rounded-2xl p-4 mt-4 text-center space-y-2">
+            <div className="text-2xl">✓</div>
+            <div className="font-semibold text-teal-200">Protocol set to the closest match</div>
+            <div className="text-sm text-teal-300">{profile.protocol?.speed} mph · {profile.protocol?.grade}% grade. Your test will still work, since it only compares you to yourself.</div>
+            <button onClick={() => setStage("ready")} className="w-full bg-teal-700 text-white font-semibold py-3 rounded-xl text-sm mt-2">Continue</button>
+          </div>
+        )}
+
         {/* TEST FLOW (only when calibrated) */}
         {calibrated && stage === "ready" && (
           <div className="bg-gray-900 rounded-2xl border border-gray-800 p-4 space-y-4">
@@ -1531,7 +1588,8 @@ function CardioTestFlow({ profile, cardio, onSaveProfile, onSaveResult, onClose 
               <button onClick={() => {
                 if (confirm("Changing the protocol resets your test history. Past results will not be comparable. Continue?")) {
                   onSaveProfile({ ...profile, protocol: null });
-                  setStage("calibrate_intro");
+                  setCalSpeed(5.0); setCalGrade(1.0); setCalStage(1); setCalHR(""); setCalError("");
+                  setStage("cal_warmup");
                 }
               }} className="text-xs text-gray-500 underline mt-2">Change protocol</button>
             </div>
