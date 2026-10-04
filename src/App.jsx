@@ -64,39 +64,91 @@ const WORKOUTS = {
 
 const ALL_COMPOUND_IDS = Object.keys(EXERCISES);
 
+// 7-pillar taxonomy. Each movement has one primary pillar (navigation) plus
+// optional tags (vertical/horizontal for pull vector, duplicate for compound overlap).
+// Existing IDs are preserved across renames so history + prefill keep working.
+const PILLARS = {
+  push:   { label: "Push" },
+  pull:   { label: "Pull" },
+  delts:  { label: "Delts" },
+  arms:   { label: "Arms" },
+  legs:   { label: "Legs" },
+  hinge:  { label: "Hinge/Glute" },
+  core:   { label: "Core" },
+};
+
+// 14-day pillar targets (user-approved, calibrated to ~3.75 sessions/week average)
+const PILLAR_TARGETS = { push: 10, pull: 10, delts: 12, arms: 9, legs: 16, hinge: 14, core: 8 };
+
+// Compound slots credited to pillars (primary 1.0, secondary 0.5) so the chip
+// ranking reflects total training, not just accessories. Essential for Legs/Hinge.
+const COMPOUND_PILLARS = {
+  belt_squat: { legs: 1.0 }, lever_squat: { legs: 1.0 }, zercher_squat: { legs: 1.0 },
+  standing_press: { push: 1.0, delts: 0.5 }, seated_press: { push: 1.0, delts: 0.5 },
+  tbar_row: { pull: 1.0 }, db_row: { pull: 1.0 },
+  hex_deadlift: { hinge: 1.0, legs: 0.5 },
+  incline_smith: { push: 1.0 }, incline_db: { push: 1.0 },
+  leg_press: { legs: 1.0 }, hack_squat: { legs: 1.0 },
+  standing_ht: { hinge: 1.0 }, ht_machine: { hinge: 1.0 },
+  rdl_barbell: { hinge: 1.0 }, single_leg_rdl: { hinge: 1.0 },
+};
+
 const ACCESSORIES = [
-  // Category-linked (referenced by A/B required categories — kept intact)
-  { id: "lat_pulldown",  name: "Lat Pulldown",      muscle: "Back",       categories: ["vertical_pull"] },
-  { id: "cable_row",     name: "Cable/Machine Row", muscle: "Back",       categories: ["upper_back_shoulder"] },
-  { id: "face_pull",     name: "Face Pull",         muscle: "Shoulders",  categories: ["delt_upper_back", "upper_back_shoulder"] },
-  { id: "bicep_curl",    name: "Bicep Curl",        muscle: "Biceps",     categories: ["arms"] },
-  { id: "lateral_raise", name: "Lateral Raise",     muscle: "Shoulders",  categories: ["delt_upper_back", "upper_back_shoulder"] },
-  { id: "rear_delt_fly", name: "Rear Delt Fly",     muscle: "Shoulders",  categories: ["delt_upper_back", "upper_back_shoulder"] },
-  { id: "tricep_push",   name: "Tricep Pushdown",   muscle: "Triceps",    categories: ["arms"] },
-  { id: "leg_curl",      name: "Hamstring Curl",    muscle: "Hamstrings", categories: ["hamstring_posterior"] },
-  { id: "hip_thrust",    name: "Hip Thrust",        muscle: "Glutes",     categories: ["hamstring_posterior"] },
-  { id: "rdl",           name: "Romanian Deadlift", muscle: "Hamstrings/Glutes", categories: ["hamstring_posterior"] },
-  { id: "pull_up",       name: "Pull-Up",           muscle: "Lats",       categories: ["vertical_pull"] },
-  // User's curated freeform movements
-  { id: "db_row_acc",    name: "Dumbbell Row",      muscle: "Back",       categories: [] },
-  { id: "goblet_squat",  name: "Goblet Squat",      muscle: "Quads",      categories: [] },
-  { id: "hanging_leg_raise", name: "Hanging Leg Raise", muscle: "Abs",    categories: [] },
-  { id: "sit_ups",       name: "Sit Ups",           muscle: "Abs",        categories: [] },
-  { id: "push_ups",      name: "Push Ups",          muscle: "Chest",      categories: [] },
-  { id: "seated_leg_ext", name: "Seated Leg Extension", muscle: "Quads",  categories: [] },
-  { id: "neck",          name: "Neck Conditioning", muscle: "Neck",       categories: [] },
-  { id: "bulgarian_split", name: "Bulgarian Split Squat", muscle: "Quads", categories: [] },
-  { id: "db_rdl_acc",    name: "Dumbbell RDL",      muscle: "Hamstrings", categories: [] },
+  // PUSH (5)
+  { id: "machine_sh_press", name: "Machine Shoulder Press", pillar: "push", muscle: "Shoulders", tags: [] },
+  { id: "incline_chest_press", name: "Incline Chest Press", pillar: "push", muscle: "Chest", tags: ["duplicate"] },
+  { id: "push_ups",      name: "Push-Up",                  pillar: "push", muscle: "Chest", tags: [] },
+  { id: "chest_dip",     name: "Chest Dip",                pillar: "push", muscle: "Chest", tags: [] },
+  { id: "machine_fly",   name: "Machine Chest Fly",        pillar: "push", muscle: "Chest", tags: [] },
+  // PULL (5)
+  { id: "lat_pulldown",  name: "Lat Pulldown",             pillar: "pull", muscle: "Lats", tags: ["vertical"] },
+  { id: "pull_up",       name: "Assisted Pull-Up",         pillar: "pull", muscle: "Lats", tags: ["vertical"] },
+  { id: "cable_row",     name: "Cable/Machine Row",        pillar: "pull", muscle: "Back", tags: ["horizontal", "duplicate"] },
+  { id: "db_row_acc",    name: "Single-Arm DB Row",        pillar: "pull", muscle: "Back", tags: ["horizontal"] },
+  { id: "trx_row",       name: "TRX Row",                  pillar: "pull", muscle: "Back", tags: ["horizontal"] },
+  // DELTS / UPPER BACK (5)
+  { id: "face_pull",     name: "Cable Face Pull",          pillar: "delts", muscle: "RearDelts", tags: [] },
+  { id: "lateral_raise", name: "Dumbbell Lateral Raise",   pillar: "delts", muscle: "Shoulders", tags: [] },
+  { id: "shrug",         name: "Dumbbell Shrug",           pillar: "delts", muscle: "Traps", tags: [] },
+  { id: "rear_delt_fly", name: "Seated Reverse Machine Fly", pillar: "delts", muscle: "RearDelts", tags: [] },
+  { id: "y_raise",       name: "Chest-Supported Y-Raise",  pillar: "delts", muscle: "Shoulders", tags: [] },
+  // ARMS (6)
+  { id: "bicep_curl",    name: "Standing DB Bicep Curl",   pillar: "arms", muscle: "Biceps", tags: [] },
+  { id: "tricep_push",   name: "Cable Tricep Pushdown",    pillar: "arms", muscle: "Triceps", tags: [] },
+  { id: "hammer_curl",   name: "DB Hammer Curl",           pillar: "arms", muscle: "Biceps", tags: [] },
+  { id: "seated_bicep",  name: "Seated Bicep Machine Curl", pillar: "arms", muscle: "Biceps", tags: [] },
+  { id: "oh_cable_tri",  name: "Overhead Cable Tricep Ext", pillar: "arms", muscle: "Triceps", tags: [] },
+  { id: "oh_db_ext",     name: "Overhead DB Extension",    pillar: "arms", muscle: "Triceps", tags: [] },
+  // LEGS (5)
+  { id: "goblet_squat",  name: "Goblet Squat",             pillar: "legs", muscle: "Quads", tags: [] },
+  { id: "walking_lunge", name: "Walking Lunge",            pillar: "legs", muscle: "Quads", tags: [] },
+  { id: "bulgarian_split", name: "Bulgarian Split Squat",  pillar: "legs", muscle: "Quads", tags: [] },
+  { id: "seated_leg_ext", name: "Seated Quad Extension",   pillar: "legs", muscle: "Quads", tags: [] },
+  { id: "seated_leg_press", name: "Seated Leg Press",      pillar: "legs", muscle: "Quads", tags: ["duplicate"] },
+  // HINGE / GLUTE (5)
+  { id: "back_extension", name: "Back Extension",          pillar: "hinge", muscle: "Hamstrings", tags: [] },
+  { id: "leg_curl",      name: "Lying Hamstring Curl",     pillar: "hinge", muscle: "Hamstrings", tags: [] },
+  { id: "seated_leg_curl", name: "Seated Leg Curl",        pillar: "hinge", muscle: "Hamstrings", tags: [] },
+  { id: "rdl",           name: "Dumbbell RDL",             pillar: "hinge", muscle: "Hamstrings", tags: [] },
+  { id: "hip_thrust",    name: "Hip Thrust Machine",       pillar: "hinge", muscle: "Glutes", tags: ["duplicate"] },
+  // CORE (4)
+  { id: "dec_crunch",    name: "Decline Crunch",           pillar: "core", muscle: "Abs", tags: [] },
+  { id: "ab_wheel",      name: "Ab Wheel Rollout",         pillar: "core", muscle: "Abs", tags: [] },
+  { id: "dead_bug",      name: "Dead Bug",                 pillar: "core", muscle: "Abs", tags: [] },
+  { id: "cable_woodchop", name: "Cable Woodchop",          pillar: "core", muscle: "Abs", tags: [] },
 ];
 
+// Required categories now reference pillars (+ optional tag constraint) instead of ID lists.
 const REQUIRED_CATEGORIES = {
   A: [
-    { id: "vertical_pull", label: "Vertical Pull", eligible: ["lat_pulldown"] },
-    { id: "delt_upper_back", label: "Delt / Upper Back", eligible: ["face_pull", "rear_delt_fly"] },
+    { id: "pull_vertical", label: "Vertical Pull", pillar: "pull", tag: "vertical" },
+    { id: "delts", label: "Delts / Upper Back", pillar: "delts" },
+    { id: "hinge", label: "Hinge / Glute", pillar: "hinge" },
   ],
   B: [
-    { id: "upper_back_shoulder", label: "Upper Back / Shoulder", eligible: ["cable_row", "face_pull"] },
-    { id: "arms", label: "Arms", eligible: ["bicep_curl", "tricep_push"] },
+    { id: "hinge", label: "Hinge / Glute", pillar: "hinge" },
+    { id: "delts", label: "Delts / Upper Back", pillar: "delts" },
+    { id: "arms", label: "Arms", pillar: "arms" },
   ],
 };
 
@@ -121,7 +173,45 @@ const STORAGE_KEYS = {
   activeSession: "wt_active_session",
   accTemplates: "wt_acc_templates",
   settings: "wt_settings",
+  cardio: "wt_cardio",          // cardio session log + test results
+  cardioProfile: "wt_cardio_profile", // max HR, zones, locked test protocol
 };
+
+const CARDIO_MODALITIES = [
+  { id: "ruck", name: "Ruck", hasLoad: true },
+  { id: "assault_bike", name: "Assault Bike", hasLoad: false },
+  { id: "spin_bike", name: "Spin Bike", hasLoad: false, flag: "No watt readout — valid session but not reproducible between sessions." },
+  { id: "treadmill", name: "Treadmill", hasLoad: false },
+];
+
+const DEFAULT_CARDIO_PROFILE = {
+  maxHR: 183,
+  maxHRUpdated: null,
+  protocol: null,        // { speed, grade, calibratedDate } once calibrated
+};
+
+// Zones derived from max HR as percentage bands (recomputed when maxHR changes)
+function deriveZones(maxHR) {
+  const pct = (lo, hi) => [Math.round(maxHR * lo), Math.round(maxHR * hi)];
+  return {
+    z2: pct(0.60, 0.70),
+    z3: pct(0.70, 0.80),
+    z4: pct(0.80, 0.90),
+    z5: pct(0.90, 1.00),
+  };
+}
+
+function zoneForHR(hr, maxHR) {
+  if (!hr || !maxHR) return null;
+  const p = hr / maxHR;
+  if (p < 0.60) return "z1";
+  if (p < 0.70) return "z2";
+  if (p < 0.80) return "z3";
+  if (p < 0.90) return "z4";
+  return "z5";
+}
+
+const CARDIO_TEST_REMINDER_DAYS = 28;
 
 const MEASUREMENT_FIELDS = [
   { id: "chest", label: "Chest", unit: "in", hint: "Around the widest part, across the nipple line" },
@@ -214,8 +304,12 @@ function calculatePlates(totalWeight, barWeight) {
   return result;
 }
 
-function getWeeklyStreak(history) {
-  if (!history.length) return 0;
+function getWeeklyStreak(history, cardio) {
+  const allDates = [
+    ...history.map(s => s.date),
+    ...(cardio || []).map(c => c.date),
+  ];
+  if (!allDates.length) return 0;
   let streak = 0;
   let weekStart = new Date();
   weekStart.setDate(weekStart.getDate() - weekStart.getDay());
@@ -223,8 +317,8 @@ function getWeeklyStreak(history) {
 
   for (let week = 0; week < STREAK_LOOKBACK_WEEKS; week++) {
     const weekEnd = new Date(weekStart.getTime() + 7 * MS_PER_DAY);
-    const sessionsThisWeek = history.filter(session => {
-      const d = new Date(session.date);
+    const sessionsThisWeek = allDates.filter(dateStr => {
+      const d = new Date(dateStr);
       return d >= weekStart && d < weekEnd;
     }).length;
     if (sessionsThisWeek >= MIN_SESSIONS_PER_WEEK) streak++;
@@ -409,12 +503,67 @@ const MUSCLE_MAP = {
   hanging_leg_raise: { Abs: 1.0 }, sit_ups: { Abs: 1.0 }, push_ups: { Chest: 1.0, Triceps: 0.5, Shoulders: 0.25 },
   seated_leg_ext: { Quads: 1.0 }, neck: { Neck: 1.0 }, bulgarian_split: { Quads: 1.0, Glutes: 0.5 },
   db_rdl_acc: { Hamstrings: 1.0, Glutes: 0.75 },
+  // New pillar-taxonomy movements
+  machine_sh_press: { Shoulders: 1.0, Triceps: 0.5 }, incline_chest_press: { Chest: 1.0, Shoulders: 0.5, Triceps: 0.5 },
+  chest_dip: { Chest: 1.0, Triceps: 0.5 }, machine_fly: { Chest: 1.0 },
+  trx_row: { Back: 1.0, Lats: 0.5, Biceps: 0.25 }, y_raise: { RearDelts: 1.0, Shoulders: 0.5 },
+  hammer_curl: { Biceps: 1.0 }, seated_bicep: { Biceps: 1.0 }, oh_cable_tri: { Triceps: 1.0 }, oh_db_ext: { Triceps: 1.0 },
+  walking_lunge: { Quads: 1.0, Glutes: 0.5 }, seated_leg_press: { Quads: 1.0, Glutes: 0.5 },
+  back_extension: { Hamstrings: 1.0, Glutes: 0.5 }, seated_leg_curl: { Hamstrings: 1.0 },
+  cable_woodchop: { Abs: 1.0 },
 };
 
 const MUSCLE_TARGETS = {
   Quads: [8, 12], Hamstrings: [8, 12], Glutes: [8, 12], Chest: [8, 12], Back: [8, 14],
   Lats: [8, 12], Shoulders: [8, 14], RearDelts: [4, 8], Biceps: [4, 8], Triceps: [4, 8], Abs: [4, 8], Traps: [4, 8], Neck: [2, 6],
 };
+
+// Chip ranking (section 5): trailing-14-day sets per pillar, including compound credit.
+function getPillarSets(history) {
+  const now = Date.now();
+  const since = now - 14 * MS_PER_DAY;
+  const sets = {};
+  Object.keys(PILLARS).forEach(p => { sets[p] = 0; });
+  const lastTrained = {}; // pillar -> most recent ms, for the 48h exclusion
+  history.forEach(session => {
+    const t = new Date(session.date).getTime();
+    if (t < since) return;
+    // Compound slots
+    (session.exercises || []).forEach(ex => {
+      const done = (ex.sets || []).filter(s => s.completed).length;
+      if (done <= 0) return;
+      const map = COMPOUND_PILLARS[ex.id]; if (!map) return;
+      Object.entries(map).forEach(([p, f]) => {
+        if (sets[p] != null) { sets[p] += done * f; lastTrained[p] = Math.max(lastTrained[p] || 0, t); }
+      });
+    });
+    // Accessories (primary pillar 1.0; no secondary pillar concept, tags are not pillars)
+    (session.accessories || []).forEach(acc => {
+      if (!acc.done) return;
+      const meta = ACCESSORIES.find(a => a.id === acc.id); if (!meta) return;
+      const n = parseFloat(acc.sets) || 0;
+      if (sets[meta.pillar] != null) { sets[meta.pillar] += n; lastTrained[meta.pillar] = Math.max(lastTrained[meta.pillar] || 0, t); }
+    });
+  });
+  return { sets, lastTrained };
+}
+
+// Returns up to 3 lowest-coverage pillars, excluding any trained in the last 48h,
+// and only when below target. Empty array => hide the row.
+function getPriorityPillars(history) {
+  const { sets, lastTrained } = getPillarSets(history);
+  const now = Date.now();
+  const ranked = Object.keys(PILLARS)
+    .filter(p => {
+      const recentlyTrained = lastTrained[p] && (now - lastTrained[p]) < 48 * 60 * 60 * 1000;
+      const belowTarget = sets[p] < PILLAR_TARGETS[p];
+      return belowTarget && !recentlyTrained;
+    })
+    .map(p => ({ pillar: p, label: PILLARS[p].label, count: Math.round(sets[p] * 10) / 10, target: PILLAR_TARGETS[p], ratio: sets[p] / PILLAR_TARGETS[p] }))
+    .sort((a, b) => a.ratio - b.ratio)
+    .slice(0, 3);
+  return ranked;
+}
 
 // Finding E: analytics-layer cleaning. Raw records are preserved in storage;
 // these filters run only when computing charts/trends/summaries.
@@ -527,11 +676,17 @@ function getVolumeHistory(history) {
   }));
 }
 
-function getCalendarData(history) {
+function getCalendarData(history, cardio) {
   const map = {};
   history.forEach(session => {
     const dateKey = new Date(session.date).toISOString().split("T")[0];
     map[dateKey] = { workout: session.workout, rpe: session.rpe, isDeload: session.isDeload };
+  });
+  // Cardio days render teal. Don't overwrite a lifting day on the same date;
+  // lifting takes visual priority, cardio only fills otherwise-empty days.
+  (cardio || []).forEach(c => {
+    const dateKey = new Date(c.date).toISOString().split("T")[0];
+    if (!map[dateKey]) map[dateKey] = { workout: "CARDIO" };
   });
   return map;
 }
@@ -540,11 +695,20 @@ function getRequiredCategories(workoutKey) {
   return REQUIRED_CATEGORIES[workoutKey] || [];
 }
 
+// A logged accessory satisfies a category if its pillar matches and, when the
+// category specifies a tag (e.g. vertical pull), the movement carries that tag.
+function accMatchesCategory(accId, cat) {
+  const meta = ACCESSORIES.find(a => a.id === accId);
+  if (!meta) return false;
+  if (meta.pillar !== cat.pillar) return false;
+  if (cat.tag && !(meta.tags || []).includes(cat.tag)) return false;
+  return true;
+}
+
 function checkCategoryCompletion(categories, accItems) {
   return categories.map(cat => {
-    const completed = accItems.some(acc => (acc.done || acc.sets) && cat.eligible.includes(acc.id));
-    const matchedAcc = accItems.find(acc => cat.eligible.includes(acc.id));
-    return { ...cat, completed, matchedAccName: matchedAcc?.name || null };
+    const matchedAcc = accItems.find(acc => (acc.done || acc.sets) && accMatchesCategory(acc.id, cat));
+    return { ...cat, completed: !!matchedAcc, matchedAccName: matchedAcc?.name || null };
   });
 }
 
@@ -717,6 +881,8 @@ function useWorkoutStorage() {
   const [nextWorkout, setNextWorkout] = useState("A");
   const [settings, setSettings] = useState({ autoRestTimer: true });
   const [customTemplates, setCustomTemplates] = useState(ACC_TEMPLATES);
+  const [cardio, setCardio] = useState([]);
+  const [cardioProfile, setCardioProfile] = useState(DEFAULT_CARDIO_PROFILE);
   const [loading, setLoading] = useState(true);
   const [recoveredSession, setRecoveredSession] = useState(null);
 
@@ -745,6 +911,10 @@ function useWorkoutStorage() {
         if (savedSettings) setSettings(prev => ({ ...prev, ...savedSettings }));
         const savedTemplates = storageGet(STORAGE_KEYS.accTemplates);
         if (savedTemplates) setCustomTemplates(prev => ({ ...prev, ...savedTemplates }));
+        const savedCardio = storageGet(STORAGE_KEYS.cardio);
+        if (Array.isArray(savedCardio)) setCardio(savedCardio);
+        const savedCardioProfile = storageGet(STORAGE_KEYS.cardioProfile);
+        if (savedCardioProfile) setCardioProfile(prev => ({ ...prev, ...savedCardioProfile }));
         setLoading(false);
         return;
       }
@@ -809,6 +979,11 @@ function useWorkoutStorage() {
 
       const savedTemplates = storageGet(STORAGE_KEYS.accTemplates);
       if (savedTemplates) setCustomTemplates(prev => ({ ...prev, ...savedTemplates }));
+
+      const savedCardio = storageGet(STORAGE_KEYS.cardio);
+      if (Array.isArray(savedCardio)) setCardio(savedCardio);
+      const savedCardioProfile = storageGet(STORAGE_KEYS.cardioProfile);
+      if (savedCardioProfile) setCardioProfile(prev => ({ ...prev, ...savedCardioProfile }));
 
       const activeSession = storageGet(STORAGE_KEYS.activeSession);
       if (activeSession && activeSession.session) {
@@ -886,6 +1061,17 @@ function useWorkoutStorage() {
     storageSet(STORAGE_KEYS.accTemplates, templates);
   }, []);
 
+  const saveCardioEntry = useCallback((entry) => {
+    const updated = [...cardio, { ...entry, date: new Date().toISOString() }];
+    setCardio(updated);
+    storageSet(STORAGE_KEYS.cardio, updated);
+  }, [cardio]);
+
+  const saveCardioProfile = useCallback((profile) => {
+    setCardioProfile(profile);
+    storageSet(STORAGE_KEYS.cardioProfile, profile);
+  }, []);
+
   const saveMeasurements = useCallback((entry) => {
     const now = Date.now();
     let updated = [...measurements];
@@ -903,8 +1089,10 @@ function useWorkoutStorage() {
 
   return {
     history, dup, bwHistory, measurements, nextWorkout, settings, customTemplates, loading, recoveredSession,
+    cardio, cardioProfile,
     saveHistory, saveDup, saveNextWorkout, saveBW, saveMeasurements, saveActiveSession, clearActiveSession,
     updateHistorySession, deleteHistorySession, saveSettings, saveCustomTemplates, setRecoveredSession,
+    saveCardioEntry, saveCardioProfile,
   };
 }
 
@@ -1062,6 +1250,102 @@ function BodyweightModal({ onSave, onClose, lastWeight }) {
             if (res && !res.ok) setError(res.error);
           }}
             className="flex-1 bg-navy text-navy-light py-3 rounded-xl text-sm font-semibold">Save</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CardioLogModal({ onSave, onClose, lastByModality }) {
+  const [modality, setModality] = useState("ruck");
+  const mod = CARDIO_MODALITIES.find(m => m.id === modality);
+  const last = lastByModality[modality] || {};
+  const [duration, setDuration] = useState("");
+  const [avgHR, setAvgHR] = useState("");
+  const [load, setLoad] = useState("");
+  const [rpe, setRpe] = useState(null);
+  const [error, setError] = useState("");
+
+  // When modality changes, reset the per-field prefills
+  function pickModality(id) {
+    setModality(id);
+    setError("");
+  }
+
+  const ph = (field, fallback) => (lastByModality[modality]?.[field] != null ? String(lastByModality[modality][field]) : fallback);
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50 p-6">
+      <div className="bg-gray-900 rounded-3xl p-6 w-full max-w-sm border border-gray-700 max-h-[90vh] overflow-y-auto">
+        <div className="text-2xl mb-1 text-center">🏃</div>
+        <div className="font-bold text-lg mb-4 text-center">Log Cardio</div>
+
+        <div className="text-xs text-gray-400 mb-1">Modality</div>
+        <div className="grid grid-cols-2 gap-2 mb-2">
+          {CARDIO_MODALITIES.map(m => (
+            <button key={m.id} onClick={() => pickModality(m.id)}
+              className={`py-2 rounded-xl text-xs font-semibold ${modality === m.id ? "bg-teal-700 text-white" : "bg-gray-800 text-gray-400"}`}>
+              {m.name}
+            </button>
+          ))}
+        </div>
+        {mod?.flag && <div className="text-xs text-amber-500 italic mb-3">{mod.flag}</div>}
+
+        <div className="space-y-3 mt-3">
+          <div className="flex items-center gap-3">
+            <span className="text-sm text-gray-400 w-24">Duration</span>
+            <input type="number" inputMode="numeric" placeholder={ph("duration", "min")} value={duration}
+              onChange={e => { setDuration(e.target.value); setError(""); }}
+              className="flex-1 bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-center text-sm font-bold text-white outline-none" />
+            <span className="text-xs text-gray-500 w-8">min</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="text-sm text-gray-400 w-24">Avg HR</span>
+            <input type="number" inputMode="numeric" placeholder={ph("avgHR", "optional")} value={avgHR}
+              onChange={e => { setAvgHR(e.target.value); setError(""); }}
+              className="flex-1 bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-center text-sm font-bold text-white outline-none" />
+            <span className="text-xs text-gray-500 w-8">bpm</span>
+          </div>
+          {mod?.hasLoad && (
+            <div className="flex items-center gap-3">
+              <span className="text-sm text-gray-400 w-24">Load</span>
+              <input type="number" inputMode="numeric" placeholder={ph("load", "30")} value={load}
+                onChange={e => { setLoad(e.target.value); setError(""); }}
+                className="flex-1 bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-center text-sm font-bold text-white outline-none" />
+              <span className="text-xs text-gray-500 w-8">lb</span>
+            </div>
+          )}
+          <div>
+            <div className="text-sm text-gray-400 mb-1">RPE</div>
+            <div className="flex gap-1">
+              {[...Array(10)].map((_, i) => (
+                <button key={i} onClick={() => setRpe(i + 1)}
+                  className={`flex-1 h-8 rounded text-xs font-semibold ${rpe === i + 1 ? "bg-teal-600 text-white" : "bg-gray-800 text-gray-500"}`}>
+                  {i + 1}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {error && <div className="text-xs text-red-400 mt-3">{error}</div>}
+
+        <div className="flex gap-3 mt-5">
+          <button onClick={onClose} className="flex-1 bg-gray-700 py-3 rounded-xl text-sm font-semibold">Cancel</button>
+          <button onClick={() => {
+            const dur = parseFloat(duration) || parseFloat(ph("duration", "0"));
+            if (!dur || dur <= 0) { setError("Enter a duration."); return; }
+            const hr = avgHR ? parseFloat(avgHR) : null;
+            if (hr != null && (hr < 60 || hr > 220)) { setError("Avg HR looks off (60-220)."); return; }
+            onSave({
+              type: "cardio_session",
+              modality,
+              duration: dur,
+              avgHR: hr,
+              load: mod?.hasLoad ? (parseFloat(load) || parseFloat(ph("load", "30")) || null) : null,
+              rpe,
+            });
+          }} className="flex-1 bg-teal-700 text-white py-3 rounded-xl text-sm font-semibold">Save</button>
         </div>
       </div>
     </div>
@@ -1406,9 +1690,10 @@ function ChartTooltip({ active, payload }) {
    VIEW: Home
    ═══════════════════════════════════════════ */
 
-function HomeView({ dup, history, bwHistory, nextWorkout, prs, streak, missed, lastGap, fatigue, wEmphasis, setWEmphasis, onStartSession, onStartAccessory, onLogBW, onLogMeasurements }) {
+function HomeView({ dup, history, bwHistory, nextWorkout, prs, streak, missed, lastGap, fatigue, wEmphasis, setWEmphasis, onStartSession, onStartAccessory, onLogBW, onLogMeasurements, onLogCardio, onCardioTest }) {
   const weeklyVol = useMemo(() => getWeeklyVolume(history), [history]);
   const [deloadArmed, setDeloadArmed] = useState({});
+  const priorityPillars = useMemo(() => getPriorityPillars(history), [history]);
 
   return (
     <div className="p-4 space-y-4">
@@ -1426,6 +1711,21 @@ function HomeView({ dup, history, bwHistory, nextWorkout, prs, streak, missed, l
 
       {missed && <div className="bg-yellow-950 border border-yellow-800 rounded-xl p-3 text-sm text-yellow-300">{lastGap} days since last session.</div>}
       {fatigue && <div className="bg-red-950 border border-red-800 rounded-xl p-3 text-sm text-red-300">RPE 8+ for {FATIGUE_WINDOW - 1} straight sessions. Consider a lighter day.</div>}
+
+      {/* Priority chip row — lowest-coverage pillars over 14 days. Hidden when all on target. */}
+      {priorityPillars.length > 0 && (
+        <div className="flex gap-2">
+          {priorityPillars.map(p => (
+            <div key={p.pillar}
+              className={`flex-1 rounded-xl px-2 py-2 text-center border ${
+                p.count === 0 ? "bg-red-950 bg-opacity-40 border-red-900 text-red-300" : "bg-gray-900 border-gray-700 text-gray-300"
+              }`}>
+              <div className="text-xs font-semibold truncate">{p.label}</div>
+              <div className="text-xs opacity-80">{p.count}/{p.target}</div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {weeklyVol.thisWeek > 0 && (
         <div className="bg-gray-900 rounded-2xl p-3 border border-gray-800">
@@ -1521,6 +1821,27 @@ function HomeView({ dup, history, bwHistory, nextWorkout, prs, streak, missed, l
         </div>
         <div className="text-xs text-gray-500 mt-2">
           Pull-ups, arms, core, delts, flies and more. For home-gym or extra days. Counts toward your history and streak.
+        </div>
+      </div>
+
+      {/* Cardio card */}
+      <div className="bg-gray-900 rounded-2xl p-4 border border-gray-800">
+        <div className="flex items-center gap-2 mb-2">
+          <div className="font-bold text-sm">Cardio</div>
+          <span className="text-xs bg-teal-900 text-teal-300 px-2 py-0.5 rounded-full font-semibold">conditioning</span>
+        </div>
+        <div className="flex gap-2">
+          <button onClick={onLogCardio}
+            className="flex-1 font-semibold py-2.5 rounded-xl text-sm bg-teal-800 text-teal-100">
+            Log a session
+          </button>
+          <button onClick={onCardioTest}
+            className="flex-1 font-semibold py-2.5 rounded-xl text-sm bg-gray-700 text-white">
+            Run the test
+          </button>
+        </div>
+        <div className="text-xs text-gray-500 mt-2">
+          Zone 2 work and the monthly fixed-workload test. Counts toward your streak.
         </div>
       </div>
 
@@ -1829,7 +2150,7 @@ function LogView({
                     <div className="text-xs text-gray-500">
                       {cat.completed
                         ? cat.matchedAccName
-                        : cat.eligible.map(id => ACCESSORIES.find(a => a.id === id)?.name).filter(Boolean).join(", ")}
+                        : ACCESSORIES.filter(a => a.pillar === cat.pillar && (!cat.tag || (a.tags || []).includes(cat.tag))).map(a => a.name).slice(0, 3).join(", ")}
                     </div>
                   </div>
                 </div>
@@ -1872,7 +2193,13 @@ function LogView({
                   {acc.name}
                   {suggested.includes(acc.id) && <span className="text-xs text-blue-300 ml-1">★</span>}
                 </div>
-                {lastDone[acc.id] && <div className="text-xs text-gray-600">{daysSinceDate(lastDone[acc.id])}d ago</div>}
+                {(() => {
+                  const meta = ACCESSORIES.find(a => a.id === acc.id);
+                  if (meta && (meta.tags || []).includes("duplicate")) {
+                    return <div className="text-xs text-amber-500 italic">Also a tracked compound — this entry won't progress</div>;
+                  }
+                  return lastDone[acc.id] ? <div className="text-xs text-gray-600">{daysSinceDate(lastDone[acc.id])}d ago</div> : null;
+                })()}
               </div>
               <button onClick={() => removeAccessory(idx)}
                 className="text-gray-500 hover:text-red-400 text-lg leading-none flex-shrink-0 w-8 h-8 flex items-center justify-center">✕</button>
@@ -2033,13 +2360,13 @@ function HistoryView({ history, onEdit }) {
    VIEW: Progress
    ═══════════════════════════════════════════ */
 
-function ProgressView({ history, dup, prs, bwHistory, measurements, selEx, setSelEx, onExport, onShowImport }) {
+function ProgressView({ history, dup, prs, bwHistory, measurements, cardio, selEx, setSelEx, onExport, onShowImport }) {
   // Finding E: run analytics over cleaned data (ghosts excluded, outliers filtered)
   const cleanHist = useMemo(() => cleanSessions(history), [history]);
   const cleanBw = useMemo(() => cleanBwHistory(bwHistory), [bwHistory]);
   const cleanMeas = useMemo(() => cleanMeasurements(measurements), [measurements]);
   const volumeData = useMemo(() => getVolumeHistory(cleanHist), [cleanHist]);
-  const calendarData = useMemo(() => getCalendarData(cleanHist), [cleanHist]);
+  const calendarData = useMemo(() => getCalendarData(cleanHist, cardio), [cleanHist, cardio]);
   const muscleSets = useMemo(() => getWeeklyMuscleSets(cleanHist), [cleanHist]);
   const regressions = useMemo(() => getRegressions(cleanHist, dup), [cleanHist, dup]);
   return (
@@ -2132,15 +2459,16 @@ function ProgressView({ history, dup, prs, bwHistory, measurements, selEx, setSe
                   const entry = calendarData[dateKey];
                   const isToday = day === now.getDate();
                   const bgColor = entry
-                    ? entry.workout === "A" ? "bg-navy" : entry.workout === "B" ? "bg-orange-900" : "bg-purple-900"
+                    ? entry.workout === "A" ? "bg-navy" : entry.workout === "B" ? "bg-orange-900" : entry.workout === "CARDIO" ? "bg-teal-900" : "bg-purple-900"
                     : "bg-gray-800";
                   const textColor = entry
-                    ? entry.workout === "A" ? "text-navy-light" : entry.workout === "B" ? "text-orange-300" : "text-purple-300"
+                    ? entry.workout === "A" ? "text-navy-light" : entry.workout === "B" ? "text-orange-300" : entry.workout === "CARDIO" ? "text-teal-300" : "text-purple-300"
                     : "text-gray-500";
+                  const dayLabel = entry ? (entry.workout === "ACC" ? "AC" : entry.workout === "CARDIO" ? "C" : entry.workout) : "";
                   return (
                     <div key={i} className={`rounded-lg p-1 text-center text-xs ${bgColor} ${textColor} ${isToday ? "ring-1 ring-white" : ""}`}>
                       {day}
-                      {entry && <div className="text-[8px] leading-none mt-0.5">{entry.workout === "ACC" ? "AC" : entry.workout}</div>}
+                      {entry && <div className="text-[8px] leading-none mt-0.5">{dayLabel}</div>}
                     </div>
                   );
                 })}
@@ -2149,6 +2477,7 @@ function ProgressView({ history, dup, prs, bwHistory, measurements, selEx, setSe
                 <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded bg-navy" /> Workout A</div>
                 <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded bg-orange-900" /> Workout B</div>
                 <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded bg-purple-900" /> Accessory</div>
+                <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded bg-teal-900" /> Cardio</div>
               </div>
             </>
           );
@@ -2605,8 +2934,10 @@ export default function App() {
   const storage = useWorkoutStorage();
   const {
     history, dup, bwHistory, measurements, nextWorkout, settings, customTemplates, loading, recoveredSession,
+    cardio, cardioProfile,
     saveHistory, saveDup, saveNextWorkout, saveBW, saveMeasurements, saveActiveSession, clearActiveSession,
     updateHistorySession, deleteHistorySession, saveSettings, saveCustomTemplates, setRecoveredSession,
+    saveCardioEntry, saveCardioProfile,
   } = storage;
 
   const [view, setView] = useState("home");
@@ -2616,6 +2947,7 @@ export default function App() {
   const [restSecs, setRestSecs] = useState(90);
   const [showPlates, setShowPlates] = useState(false);
   const [showBW, setShowBW] = useState(false);
+  const [showCardioLog, setShowCardioLog] = useState(false);
   const [selEx, setSelEx] = useState(ALL_COMPOUND_IDS[0]);
   const [rpe, setRpe] = useState(null);
   const [note, setNote] = useState("");
@@ -2688,7 +3020,7 @@ export default function App() {
 
   // Derived values
   const prs = useMemo(() => getPersonalRecords(history), [history]);
-  const streak = useMemo(() => getWeeklyStreak(history), [history]);
+  const streak = useMemo(() => getWeeklyStreak(history, cardio), [history, cardio]);
   const lastDone = useMemo(() => getAccessoryLastDone(history), [history]);
   const accLastValues = useMemo(() => getAccessoryLastValues(history), [history]);
   const suggested = useMemo(() => getSuggestedAccessories(history), [history]);
@@ -2969,18 +3301,22 @@ export default function App() {
     if (data.bwHistory) {
       storageSet(STORAGE_KEYS.bw, data.bwHistory);
     }
+    if (data.cardio) storageSet(STORAGE_KEYS.cardio, data.cardio);
+    if (data.cardioProfile) storageSet(STORAGE_KEYS.cardioProfile, data.cardioProfile);
     setShowImport(false);
     window.location.reload();
   }
 
   function handleExport() {
     const payload = {
-      schemaVersion: 2,
+      schemaVersion: 3,
       exportDate: new Date().toISOString(),
       sessions: history,
       dupState: dup,
       bwHistory,
       measurements,
+      cardio,
+      cardioProfile,
     };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -3003,6 +3339,16 @@ export default function App() {
       {showTimer && <RestTimer defaultSecs={restSecs} onClose={() => setShowTimer(false)} />}
       {showPlates && session && <PlateCalculator exercises={session.exercises} onClose={() => setShowPlates(false)} />}
       {showBW && <BodyweightModal onSave={(w) => { const r = saveBW(w); if (r && r.ok) setShowBW(false); return r; }} onClose={() => setShowBW(false)} lastWeight={bwHistory[bwHistory.length - 1]?.weight} />}
+
+      {showCardioLog && <CardioLogModal
+        onSave={(entry) => { saveCardioEntry(entry); setShowCardioLog(false); }}
+        onClose={() => setShowCardioLog(false)}
+        lastByModality={(() => {
+          const byMod = {};
+          cardio.filter(c => c.type === "cardio_session").forEach(c => { byMod[c.modality] = c; });
+          return byMod;
+        })()}
+      />}
       {showMeasurements && <MeasurementsModal onSave={(entry) => { saveMeasurements(entry); setShowMeasurements(false); }} onClose={() => setShowMeasurements(false)} lastEntry={measurements[measurements.length - 1]} />}
       {showAccPicker && <AccessoryPicker accItems={accItems} lastDone={lastDone} onAdd={addAccessory} onClose={() => setShowAccPicker(false)} />}
       {showTemplatePicker && <AccessoryTemplatePicker templates={customTemplates} onSelect={loadAccessoryTemplate} onClose={() => setShowTemplatePicker(false)} />}
@@ -3178,6 +3524,7 @@ export default function App() {
           prs={prs} streak={streak} missed={missed} lastGap={lastGap} fatigue={fatigue}
           wEmphasis={wEmphasis} setWEmphasis={setWEmphasis}
           onStartSession={startSession} onStartAccessory={startAccessorySession} onLogBW={() => setShowBW(true)}
+          onLogCardio={() => setShowCardioLog(true)} onCardioTest={() => setAppAlert("The guided test is coming in the next update.")}
           onLogMeasurements={() => setShowMeasurements(true)}
         />
       )}
@@ -3230,7 +3577,7 @@ export default function App() {
       {view === "progress" && (
         <ProgressView
           history={history} dup={dup} prs={prs} bwHistory={bwHistory}
-          measurements={measurements}
+          measurements={measurements} cardio={cardio}
           selEx={selEx} setSelEx={setSelEx}
           onExport={handleExport} onShowImport={() => setShowImport(true)}
         />
