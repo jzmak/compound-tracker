@@ -78,7 +78,7 @@ const PILLARS = {
 };
 
 // 14-day pillar targets (user-approved, calibrated to ~3.75 sessions/week average)
-const PILLAR_TARGETS = { push: 10, pull: 10, delts: 12, arms: 9, legs: 16, hinge: 14, core: 8 };
+const PILLAR_TARGETS = { push: 14, pull: 14, delts: 12, arms: 9, legs: 24, hinge: 20, core: 8 };
 
 // Compound slots credited to pillars (primary 1.0, secondary 0.5) so the chip
 // ranking reflects total training, not just accessories. Essential for Legs/Hinge.
@@ -253,7 +253,10 @@ function deriveStaleWeight(exerciseId, targetTrack, dupState, history) {
     if (track === targetTrack) {
       if (!lastTargetDate) lastTargetDate = history[i].date;
     } else {
-      targetSessionsSince++; // active-track sessions accumulating since target last ran
+      // Only count other-track sessions that occurred AFTER the target track last ran.
+      // Walking newest→oldest, lastTargetDate is still null until we pass the target's
+      // most recent run, so this correctly counts "sessions since target last ran".
+      if (!lastTargetDate) targetSessionsSince++;
       if (allDone && !lastActive) lastActive = { weight: ex.weight, reps: parseFloat(ex.sets[ex.sets.length - 1].reps) || config.repMin };
     }
   }
