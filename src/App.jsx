@@ -131,11 +131,12 @@ const ACCESSORIES = [
   { id: "seated_leg_curl", name: "Seated Leg Curl",        pillar: "hinge", muscle: "Hamstrings", tags: [] },
   { id: "rdl",           name: "Dumbbell RDL",             pillar: "hinge", muscle: "Hamstrings", tags: [] },
   { id: "hip_thrust",    name: "Hip Thrust Machine",       pillar: "hinge", muscle: "Glutes", tags: ["duplicate"] },
-  // CORE (4)
+  // CORE (5)
   { id: "dec_crunch",    name: "Decline Crunch",           pillar: "core", muscle: "Abs", tags: [] },
   { id: "ab_wheel",      name: "Ab Wheel Rollout",         pillar: "core", muscle: "Abs", tags: [] },
   { id: "dead_bug",      name: "Dead Bug",                 pillar: "core", muscle: "Abs", tags: [] },
   { id: "cable_woodchop", name: "Cable Woodchop",          pillar: "core", muscle: "Abs", tags: [] },
+  { id: "hanging_leg_raise", name: "Hanging Leg Raise",    pillar: "core", muscle: "Abs", tags: [] },
 ];
 
 // Required categories now reference pillars (+ optional tag constraint) instead of ID lists.
@@ -595,6 +596,27 @@ function cleanSessions(history) {
   return (history || []).filter(s => !isGhostSession(s));
 }
 
+// Accessory bests: ranked by e1RM (40x12 beats 50x6). Labeled "best", never "PR":
+// machine and gym differences make accessory numbers noisier than compound PRs.
+// Unloaded (bodyweight) entries never count. Flag field is acc.unloaded.
+function getAccessoryBests(history) {
+  const bests = {};
+  cleanSessions(history).forEach(session => {
+    (session.accessories || []).forEach(acc => {
+      if (!acc.done || acc.unloaded) return;
+      const w = parseFloat(acc.weight);
+      const r = parseFloat(acc.reps);
+      if (!(w > 0) || !(r > 0)) return;
+      const e1rm = estimateE1RM(w, r);
+      const cur = bests[acc.id];
+      if (!cur || e1rm > cur.e1rm) {
+        bests[acc.id] = { e1rm, weight: w, reps: r, date: session.date, sets: acc.sets };
+      }
+    });
+  });
+  return bests;
+}
+
 function getWeeklyMuscleSets(history) {
   const now = new Date();
   const weekAgo = new Date(now.getTime() - 7 * MS_PER_DAY);
@@ -668,7 +690,19 @@ function getWeeklyVolume(history) {
   const lastTotal = lastWeek.reduce((sum, session) => sum + getSessionVolume(session), 0);
   const change = lastTotal > 0 ? Math.round(((thisTotal - lastTotal) / lastTotal) * 100) : null;
 
-  return { thisWeek: thisTotal, lastWeek: lastTotal, change, sessionCount: thisWeek.length };
+  // Set count is measured, not estimated, so it represents bodyweight work that tonnage can't.
+  // Completed compound sets plus accessory sets for done entries (including unloaded ones).
+  let setCount = 0;
+  thisWeek.forEach(session => {
+    (session.exercises || []).forEach(ex => {
+      setCount += (ex.sets || []).filter(s => s.completed).length;
+    });
+    (session.accessories || []).forEach(acc => {
+      if (acc.done) setCount += parseFloat(acc.sets) || 0;
+    });
+  });
+
+  return { thisWeek: thisTotal, lastWeek: lastTotal, change, sessionCount: thisWeek.length, setCount };
 }
 
 function getVolumeHistory(history) {
@@ -1784,7 +1818,13 @@ function RecoveryDialog({ sessionData, onRecover, onDiscard }) {
   );
 }
 
-function AccessoryPicker({ accItems, lastDone, onAdd, onClose }) {
+const PICKER_PILLAR_ORDER = ["push", "pull", "delts", "arms", "legs", "hinge", "core"];
+
+function AccessoryPicker({ accItems, lastDone, onAdd, onClose, priorityPillars }) {
+  const priorityIds = (priorityPillars || []).map(p => p.pillar);
+  // Open the top priority pillar on first render; none if nothing is below target.
+  const [openPillar, setOpenPillar] = useState(priorityIds[0] || null);
+
   return (
     <div className="fixed inset-0 bg-black bg-opacity-80 flex items-end justify-center z-50">
       <div className="bg-gray-900 rounded-t-3xl p-6 w-full max-w-lg border-t border-gray-700">
@@ -1792,23 +1832,43 @@ function AccessoryPicker({ accItems, lastDone, onAdd, onClose }) {
           <div className="font-bold">Add Accessory</div>
           <button onClick={onClose} className="text-gray-400 hover:text-white text-xl w-10 h-10 flex items-center justify-center">✕</button>
         </div>
-        <div className="space-y-1 max-h-72 overflow-y-auto">
-          {ACCESSORIES.map(acc => {
-            const lastDate = lastDone[acc.id];
-            const alreadyAdded = accItems.find(item => item.id === acc.id);
+        <div className="space-y-1.5 max-h-96 overflow-y-auto">
+          {PICKER_PILLAR_ORDER.map(pid => {
+            const items = ACCESSORIES.filter(a => a.pillar === pid);
+            const isOpen = openPillar === pid;
+            const isPriority = priorityIds.includes(pid);
             return (
-              <button key={acc.id} onClick={() => onAdd(acc.id)} disabled={!!alreadyAdded}
-                className={`w-full flex justify-between items-center px-4 py-3 rounded-xl text-sm transition-colors ${
-                  alreadyAdded ? "opacity-40 bg-gray-800" : "bg-gray-800 hover:bg-gray-700"
-                }`}>
-                <div>
-                  <span className="text-white">{acc.name}</span>
-                  <span className="text-gray-500 ml-2 text-xs">{acc.muscle}</span>
-                </div>
-                <span className="text-xs text-gray-500">
-                  {lastDate ? daysSinceDate(lastDate) + "d ago" : "never"}
-                </span>
-              </button>
+              <div key={pid}>
+                <button onClick={() => setOpenPillar(isOpen ? null : pid)}
+                  className={`w-full flex justify-between items-center px-4 min-h-[44px] rounded-xl text-sm font-semibold border ${
+                    isPriority ? "bg-red-950 bg-opacity-40 border-red-900 text-red-200" : "bg-gray-800 border-gray-700 text-gray-200"
+                  }`}>
+                  <span>{PILLARS[pid].label} ({items.length})</span>
+                  <span className="text-gray-400 text-xs">{isOpen ? "▲" : "▼"}</span>
+                </button>
+                {isOpen && (
+                  <div className="space-y-1 mt-1">
+                    {items.map(acc => {
+                      const lastDate = lastDone[acc.id];
+                      const alreadyAdded = accItems.find(item => item.id === acc.id);
+                      return (
+                        <button key={acc.id} onClick={() => onAdd(acc.id)} disabled={!!alreadyAdded}
+                          className={`w-full flex justify-between items-center px-4 min-h-[44px] rounded-xl text-sm transition-colors ${
+                            alreadyAdded ? "opacity-40 bg-gray-800" : "bg-gray-800 hover:bg-gray-700"
+                          }`}>
+                          <div className="text-left">
+                            <span className="text-white">{acc.name}</span>
+                            <span className="text-gray-500 ml-2 text-xs">{acc.muscle}</span>
+                          </div>
+                          <span className="text-xs text-gray-500 flex-shrink-0 ml-2">
+                            {lastDate ? daysSinceDate(lastDate) + "d ago" : "never"}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             );
           })}
         </div>
@@ -2063,12 +2123,12 @@ function HomeView({ dup, history, bwHistory, cardio, nextWorkout, prs, streak, m
         </div>
       )}
 
-      {weeklyVol.thisWeek > 0 && (
+      {(weeklyVol.thisWeek > 0 || weeklyVol.setCount > 0) && (
         <div className="bg-gray-900 rounded-2xl p-3 border border-gray-800">
           <div className="flex justify-between items-center">
             <div>
               <div className="text-xs text-gray-500">This week's volume</div>
-              <div className="text-lg font-bold text-white">{weeklyVol.thisWeek.toLocaleString()} lb</div>
+              <div className="text-lg font-bold text-white">{weeklyVol.thisWeek.toLocaleString()} lb · {Math.round(weeklyVol.setCount)} sets</div>
             </div>
             <div className="text-right">
               <div className="text-xs text-gray-500">{weeklyVol.sessionCount} session{weeklyVol.sessionCount !== 1 ? "s" : ""}</div>
@@ -2199,7 +2259,7 @@ function HomeView({ dup, history, bwHistory, cardio, nextWorkout, prs, streak, m
 
 function LogView({
   session, setSession, elapsed, prs, emphasisOvr, settings,
-  accItems, setAccItems, rpe, setRpe, note, setNote, suggested, lastDone, accLastValues, onNotify,
+  accItems, setAccItems, rpe, setRpe, note, setNote, suggested, lastDone, accLastValues, accBests, onNotify,
   customTemplates, onToggleOverride, onSwapExercise, onSave, onShowPlates, onShowTimer,
   onShowAccPicker, onShowTemplatePicker, accMode, setAccMode, saved
 }) {
@@ -2573,6 +2633,11 @@ function LogView({
                 title="Bodyweight / unloaded"
                 className={`text-xs flex-shrink-0 px-2 py-1.5 rounded-lg border ml-auto ${acc.unloaded ? "text-blue-300 border-blue-800 bg-blue-900 bg-opacity-30" : "text-gray-500 border-gray-700"}`}>BW</button>
             </div>
+            {accBests && accBests[acc.id] && (
+              <div className="pl-10 mt-1 text-xs text-gray-600">
+                best {accBests[acc.id].weight}x{accBests[acc.id].reps}
+              </div>
+            )}
           </div>
         ))}
       </div>
@@ -2696,7 +2761,7 @@ function HistoryView({ history, onEdit }) {
    VIEW: Progress
    ═══════════════════════════════════════════ */
 
-function ProgressView({ history, dup, prs, bwHistory, measurements, cardio, selEx, setSelEx, onExport, onShowImport }) {
+function ProgressView({ history, dup, prs, accBests, bwHistory, measurements, cardio, selEx, setSelEx, onExport, onShowImport }) {
   // Finding E: run analytics over cleaned data (ghosts excluded, outliers filtered)
   const cleanHist = useMemo(() => cleanSessions(history), [history]);
   const cleanBw = useMemo(() => cleanBwHistory(bwHistory), [bwHistory]);
@@ -2945,6 +3010,46 @@ function ProgressView({ history, dup, prs, bwHistory, measurements, cardio, selE
           );
         })}
       </div>
+
+      {/* Accessory Bests (labeled "best", never "PR") */}
+      {(() => {
+        const bests = accBests || {};
+        const withData = ACCESSORIES.filter(a => bests[a.id]);
+        return (
+          <div className="bg-gray-900 rounded-2xl p-4 border border-gray-800">
+            <div className="font-semibold mb-1">Accessory Bests</div>
+            <div className="text-xs text-gray-500 mb-3">Ranked by estimated 1RM. Unloaded work isn't counted.</div>
+            {withData.length < 5 && (
+              <div className="text-xs text-gray-500 mb-3">
+                Accessory bests build up as you log weights. Entries before late August have no weight recorded.
+              </div>
+            )}
+            {PICKER_PILLAR_ORDER.map(pid => {
+              const rows = withData.filter(a => a.pillar === pid);
+              if (rows.length === 0) return null;
+              return (
+                <div key={pid} className="mb-3 last:mb-0">
+                  <div className="text-xs text-gray-500 font-semibold mb-1">{PILLARS[pid].label}</div>
+                  {rows.map(a => {
+                    const b = bests[a.id];
+                    return (
+                      <div key={a.id} className="flex justify-between items-baseline text-sm py-0.5">
+                        <span className="text-gray-300">{a.name}</span>
+                        <div className="text-right">
+                          <span className="text-gray-200 font-semibold">~{b.e1rm}lb</span>
+                          <span className="text-gray-500 text-xs ml-2">
+                            {b.weight}x{b.reps} · {new Date(b.date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
 
       {/* Weight Progression (selected exercise) */}
       <div className="bg-gray-900 rounded-2xl p-4 border border-gray-800">
@@ -3438,6 +3543,7 @@ export default function App() {
 
   // Derived values
   const prs = useMemo(() => getPersonalRecords(history), [history]);
+  const accBests = useMemo(() => getAccessoryBests(history), [history]);
   const streak = useMemo(() => getWeeklyStreak(history, cardio), [history, cardio]);
   const lastDone = useMemo(() => getAccessoryLastDone(history), [history]);
   const accLastValues = useMemo(() => getAccessoryLastValues(history), [history]);
@@ -3776,7 +3882,7 @@ export default function App() {
         onClose={() => setShowCardioTest(false)}
       />}
       {showMeasurements && <MeasurementsModal onSave={(entry) => { saveMeasurements(entry); setShowMeasurements(false); }} onClose={() => setShowMeasurements(false)} lastEntry={measurements[measurements.length - 1]} />}
-      {showAccPicker && <AccessoryPicker accItems={accItems} lastDone={lastDone} onAdd={addAccessory} onClose={() => setShowAccPicker(false)} />}
+      {showAccPicker && <AccessoryPicker accItems={accItems} lastDone={lastDone} onAdd={addAccessory} onClose={() => setShowAccPicker(false)} priorityPillars={getPriorityPillars(history)} />}
       {showTemplatePicker && <AccessoryTemplatePicker templates={customTemplates} onSelect={loadAccessoryTemplate} onClose={() => setShowTemplatePicker(false)} />}
       {showImport && <ImportModal onImport={handleImport} onClose={() => setShowImport(false)} />}
 
@@ -3900,7 +4006,7 @@ export default function App() {
           <h1 className="text-xl font-bold tracking-tight">Compound Tracker</h1>
           <div className="flex gap-2 flex-wrap justify-end">
             {missed && <span className="text-xs bg-yellow-900 text-yellow-300 px-2 py-1 rounded-full">{lastGap}d gap</span>}
-            {streak > 0 && <span className="text-xs bg-orange-900 text-orange-300 px-2 py-1 rounded-full">🔥{streak}w</span>}
+            {streak > 0 && <span title="Weeks in a row with 3+ sessions" className="text-xs bg-orange-900 text-orange-300 px-2 py-1 rounded-full">🔥{streak} wk</span>}
             {fatigue && <span className="text-xs bg-red-900 text-red-300 px-2 py-1 rounded-full">Fatigue</span>}
           </div>
         </div>
@@ -3915,7 +4021,7 @@ export default function App() {
           </div>
           <div className="bg-gray-800 rounded-xl p-2 text-center">
             <div className="text-lg font-bold text-orange-400">🔥{streak}</div>
-            <div className="text-xs text-gray-500">Wk streak</div>
+            <div className="text-xs text-gray-500">{streak === 1 ? "week in a row" : "weeks in a row"}</div>
           </div>
           <div className="bg-gray-800 rounded-xl p-2 text-center">
             <div className="text-lg font-bold text-yellow-400">{bwHistory[bwHistory.length - 1]?.weight ?? "—"}</div>
@@ -3961,7 +4067,7 @@ export default function App() {
           prs={prs} emphasisOvr={emphasisOvr} settings={settings}
           accItems={accItems} setAccItems={setAccItems}
           rpe={rpe} setRpe={setRpe} note={note} setNote={setNote}
-          suggested={suggested} lastDone={lastDone} accLastValues={accLastValues} onNotify={(msg) => setAppAlert(msg)} customTemplates={customTemplates}
+          suggested={suggested} lastDone={lastDone} accLastValues={accLastValues} accBests={accBests} onNotify={(msg) => setAppAlert(msg)} customTemplates={customTemplates}
           onToggleOverride={toggleOverride} onSwapExercise={swapExercise}
           onSave={() => {
             if (!session) return;
@@ -4002,7 +4108,7 @@ export default function App() {
 
       {view === "progress" && (
         <ProgressView
-          history={history} dup={dup} prs={prs} bwHistory={bwHistory}
+          history={history} dup={dup} prs={prs} accBests={accBests} bwHistory={bwHistory}
           measurements={measurements} cardio={cardio}
           selEx={selEx} setSelEx={setSelEx}
           onExport={handleExport} onShowImport={() => setShowImport(true)}
